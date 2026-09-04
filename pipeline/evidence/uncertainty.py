@@ -90,6 +90,8 @@ class UncertaintyEngine:
             "mean_cvm": round(mean_cvm, 4),
             "sigma_cvm": round(sigma_cvm, 4),
             "cvm_95ci": [round(ci_lower, 4), round(ci_upper, 4)],
+            "analytical_interval_95": {"lower": round(ci_lower, 4), "upper": round(ci_upper, 4)},
+            "terminology": "95% analytical uncertainty interval under stated error model",
             "relative_uncertainty_pct": round((1.96 * sigma_cvm / (mean_cvm + 1e-7)) * 100.0, 2)
         }
 
@@ -109,6 +111,8 @@ class UncertaintyEngine:
                 "nominal_area_m2": 0.0,
                 "area_uncertainty_m2": 0.0,
                 "area_95ci_m2": [0.0, 0.0],
+                "analytical_interval_95": {"lower_m2": 0.0, "upper_m2": 0.0},
+                "terminology": "95% analytical uncertainty interval under stated error model",
                 "uncertainty_pct": 0.0
             }
 
@@ -126,5 +130,7 @@ class UncertaintyEngine:
             "nominal_area_m2": round(nominal_area, 2),
             "area_uncertainty_m2": round(delta_area, 2),
             "area_95ci_m2": [round(ci_lower, 2), round(ci_upper, 2)],
+            "analytical_interval_95": {"lower_m2": round(ci_lower, 2), "upper_m2": round(ci_upper, 2)},
+            "terminology": "95% analytical uncertainty interval under stated error model",
             "uncertainty_pct": round(pct, 2)
         }

@@ -285,6 +285,8 @@ class Benchmark20Harness:
             "capability": capability,
             "priority": priority,
             "pass": passed,
+            "result_type": "BENCHMARK RESULT",
+            "benchmark_confidence": result.get("confidence_source"),
             "runtime_sec": elapsed_sec,
             "results": result
         }
@@ -327,6 +329,8 @@ class Benchmark20Harness:
 
         return {
             "suite_version": "2.0-NASA-ISRO",
+            "result_type": "BENCHMARK RESULT",
+            "disclaimer": "Benchmark evaluation on synthetic/curated reference scenarios. Does not represent universal real-world operational accuracy.",
             "total_queries": len(queries),
             "passed_queries": passed_count,
             "overall_pass": all_passed,
