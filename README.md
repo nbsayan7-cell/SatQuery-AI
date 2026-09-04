@@ -25,7 +25,7 @@
 ## 👥 Team Details
 
 * **Project:** SatQuery AI
-* **Team Lead / Principal Developer:** Sayan Saha ([@nbsayan7-cell](https://github.com/nbsayan7-cell))
+* **Team Leader:** SNEHA DEY
 * **Repository:** [https://github.com/nbsayan7-cell/SatQuery-AI](https://github.com/nbsayan7-cell/SatQuery-AI)
 * **Submission Status:** Public Open-Source Repository
 
