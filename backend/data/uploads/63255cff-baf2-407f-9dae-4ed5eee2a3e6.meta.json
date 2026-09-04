@@ -1,0 +1,9 @@
+{
+  "filename": "test_image.jpg",
+  "size_bytes": 825,
+  "extension": ".jpg",
+  "width": 100,
+  "height": 100,
+  "format": "JPEG",
+  "mode": "RGB"
+}

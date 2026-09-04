@@ -1,0 +1,132 @@
+/* ============================================================
+   SatQuery AI — Design Token System
+   ============================================================
+   WHAT: Complete design token layer for the SatQuery AI frontend.
+   WHY:  Replaces 950+ lines of scattered inline styles with a
+         single source of truth for color, typography, spacing,
+         radius, shadow, and motion. Enables theming and ensures
+         visual consistency across all components.
+   WHO USES IT: Every CSS file and component in the frontend.
+   ============================================================ */
+
+:root {
+  /* ── COLOR: Backgrounds (Apple Pro Deep Slate & Translucent Materials) ── */
+  --color-bg:              #07090E;
+  --color-surface:         rgba(16, 21, 33, 0.72);
+  --color-surface-raised:  rgba(26, 34, 52, 0.58);
+  --color-surface-overlay: rgba(36, 48, 74, 0.65);
+  --color-surface-hover:   rgba(255, 255, 255, 0.06);
+  --color-surface-active:  rgba(255, 255, 255, 0.10);
+
+  /* ── COLOR: Accent & Materials ──────────────────────────── */
+  --color-accent:          #3DD6D0;
+  --color-accent-dim:      rgba(61, 214, 208, 0.12);
+  --color-accent-hover:    #5CE6E0;
+  --color-accent-glow:     rgba(61, 214, 208, 0.25);
+
+  /* ── COLOR: Semantic ──────────────────────────────────── */
+  --color-success:         #30D158;
+  --color-success-dim:     rgba(48, 209, 88, 0.14);
+  --color-warning:         #FF9F0A;
+  --color-warning-dim:     rgba(255, 159, 10, 0.14);
+  --color-danger:          #FF453A;
+  --color-danger-dim:      rgba(255, 69, 58, 0.14);
+  --color-info:            #64D2FF;
+  --color-info-dim:        rgba(100, 210, 255, 0.14);
+
+  /* ── COLOR: Text (Apple Contrast Tiering) ──────────────── */
+  --color-text:            #F5F5F7;
+  --color-text-secondary:  #A1A1A6;
+  --color-text-muted:      #6E6E73;
+  --color-text-inverse:    #000000;
+
+  /* ── COLOR: Apple Thin Borders ────────────────────────── */
+  --color-border:          rgba(255, 255, 255, 0.08);
+  --color-border-strong:   rgba(255, 255, 255, 0.15);
+  --color-border-accent:   rgba(61, 214, 208, 0.38);
+  --glass-highlight:       rgba(255, 255, 255, 0.06);
+
+  /* ── TYPOGRAPHY: Families ─────────────────────────────── */
+  --font-sans:  'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:  'JetBrains Mono', ui-monospace, monospace;
+
+  /* ── TYPOGRAPHY: Scale ────────────────────────────────── 
+     Optical: letter-spacing tightens as size grows (Apple rule) */
+  --text-display:    2rem;       /* 32px — hero headings */
+  --text-h1:         1.5rem;     /* 24px */
+  --text-h2:         1.125rem;   /* 18px — section headings */
+  --text-h3:         0.9375rem;  /* 15px — subsection */
+  --text-body-lg:    0.9375rem;  /* 15px */
+  --text-body:       0.875rem;   /* 14px — primary body (Apple HIG standard) */
+  --text-body-sm:    0.8125rem;  /* 13px */
+  --text-caption:    0.75rem;    /* 12px — labels, metadata */
+  --text-micro:      0.6875rem;  /* 11px — badges, tags */
+
+  --leading-tight:   1.25;
+  --leading-normal:  1.45;
+  --leading-relaxed: 1.6;
+
+  --tracking-tight:  -0.022em;
+  --tracking-normal:  -0.005em;
+  --tracking-wide:    0.03em;
+
+  --weight-normal:   400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+
+  /* ── SPACING: Scale (4px base) ────────────────────────── */
+  --space-1:   0.25rem;   /*  4px */
+  --space-2:   0.5rem;    /*  8px */
+  --space-3:   0.75rem;   /* 12px */
+  --space-4:   1rem;      /* 16px */
+  --space-5:   1.25rem;   /* 20px */
+  --space-6:   1.5rem;    /* 24px */
+  --space-8:   2rem;      /* 32px */
+  --space-10:  2.5rem;    /* 40px */
+  --space-12:  3rem;      /* 48px */
+  --space-16:  4rem;      /* 64px */
+
+  /* ── RADIUS: Concentric Nested Scales (Apple HIG) ───────── */
+  --radius-none: 0;
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   18px;
+  --radius-pill: 9999px;
+
+  /* ── SHADOWS ──────────────────────────────────────────── */
+  --shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md:    0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg:    0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-float: 0 12px 40px rgba(0, 0, 0, 0.6);
+
+  /* ── MOTION ───────────────────────────────────────────── */
+  --ease-out:      cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:   cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --duration-instant:  80ms;
+  --duration-fast:    150ms;
+  --duration-normal:  250ms;
+  --duration-slow:    400ms;
+  --duration-slower:  600ms;
+
+  /* ── Z-INDEX SCALE ────────────────────────────────────── */
+  --z-base:     1;
+  --z-overlay:  10;
+  --z-sticky:   20;
+  --z-modal:    100;
+  --z-toast:    200;
+}
+
+/* ── Reduced motion ─────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant:  0ms;
+    --duration-fast:     0ms;
+    --duration-normal:   0ms;
+    --duration-slow:     0ms;
+    --duration-slower:   0ms;
+  }
+}

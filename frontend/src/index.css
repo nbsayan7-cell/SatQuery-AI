@@ -1,0 +1,58 @@
+@import './styles/design-tokens.css';
+@import './styles/components.css';
+@import './styles/utilities.css';
+
+:root {
+  font-family: var(--font-sans);
+  line-height: var(--leading-normal);
+  font-weight: var(--weight-normal);
+
+  color-scheme: dark;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: 
+    radial-gradient(ellipse 70% 50% at 20% -10%, rgba(61, 214, 208, 0.08), transparent 70%),
+    radial-gradient(ellipse 60% 40% at 85% 105%, rgba(100, 210, 255, 0.06), transparent 70%),
+    linear-gradient(180deg, #07090E 0%, #0B0E17 100%);
+  background-attachment: fixed;
+}
+
+/* ── Scrollbar styling (Apple Minimalist) ───────────────── */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* ── Selection ──────────────────────────────────────────── */
+::selection {
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+}

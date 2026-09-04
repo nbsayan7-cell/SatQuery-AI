@@ -1,0 +1,92 @@
+/* ============================================================
+   SatQuery AI — App Layout
+   ============================================================ */
+
+.app-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr 280px;
+  grid-template-rows: auto 1fr 220px;
+  gap: var(--space-2);
+  height: 100vh;
+  padding: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+.app-layout__sidebar-left {
+  grid-column: 1 / 2;
+  grid-row: 2 / 4;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-layout__main {
+  grid-column: 2 / 3;
+  grid-row: 2 / 3;
+  min-height: 0;
+}
+
+.app-layout__sidebar-right {
+  grid-column: 3 / 4;
+  grid-row: 2 / 4;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-layout__bottom {
+  grid-column: 2 / 3;
+  grid-row: 3 / 4;
+  min-height: 0;
+}
+
+/* ── Responsive: Tablet ─────────────────────────────────── */
+@media (max-width: 1200px) {
+  .app-layout {
+    grid-template-columns: 280px 1fr;
+    grid-template-rows: auto 1fr 200px auto;
+  }
+
+  .app-layout__sidebar-right {
+    grid-column: 1 / -1;
+    grid-row: 4 / 5;
+    flex-direction: row;
+    overflow-x: auto;
+  }
+}
+
+/* ── Responsive: Mobile ─────────────────────────────────── */
+@media (max-width: 768px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 300px auto auto;
+    padding: var(--space-2);
+  }
+
+  .app-layout__sidebar-left {
+    grid-column: 1;
+    grid-row: 2;
+    overflow-y: visible;
+  }
+
+  .app-layout__main {
+    grid-column: 1;
+    grid-row: 3;
+    min-height: 300px;
+  }
+
+  .app-layout__bottom {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  .app-layout__sidebar-right {
+    grid-column: 1;
+    grid-row: 5;
+    flex-direction: column;
+  }
+}
