@@ -1,0 +1,152 @@
+const { CollectorApi } = require("../../../collectorApi");
+const Provider = require("../providers/ai-provider");
+const { summarizeContent } = require("../utils/summarize");
+
+const webScraping = {
+  name: "web-scraping",
+  startupConfig: {
+    params: {},
+  },
+  plugin: function () {
+    return {
+      name: this.name,
+      setup(aibitat) {
+        aibitat.function({
+          super: aibitat,
+          name: this.name,
+          description:
+            "Read and extract content from a specific webpage URL. Fetch the text from a website, get the contents of a link, or visit a URL to see what it says. Use when you have a specific web address to read.",
+          examples: [
+            {
+              prompt: "Read that URL for me",
+              call: JSON.stringify({ url: "https://example.com" }),
+            },
+            {
+              prompt: "What is anythingllm.com about?",
+              call: JSON.stringify({ url: "https://anythingllm.com" }),
+            },
+            {
+              prompt: "Scrape https://example.com",
+              call: JSON.stringify({ url: "https://example.com" }),
+            },
+          ],
+          parameters: {
+            $schema: "http://json-schema.org/draft-07/schema#",
+            type: "object",
+            properties: {
+              url: {
+                type: "string",
+                format: "uri",
+                description:
+                  "A complete web address URL including protocol. Assumes https if not provided.",
+              },
+            },
+            additionalProperties: false,
+          },
+          handler: async function ({ url }) {
+            try {
+              if (url) return await this.scrape(url);
+              return "There is nothing we can do. This function call returns no information.";
+            } catch (error) {
+              const errorMessage = error?.message ?? JSON.stringify(error);
+              this.super.handlerProps.log(
+                `Web Scraping Error: ${errorMessage}`
+              );
+              this.super.introspect(
+                `${this.caller}: Web Scraping Error: ${errorMessage}`
+              );
+              return `There was an error while calling the function. No data or response was found. Let the user know this was the error: ${errorMessage}`;
+            }
+          },
+
+          /**
+           * Report a URL citation to be displayed in the chat UI.
+           * @param {string} url - The URL that was accessed
+           * @param {string} content - The content retrieved from the URL
+           */
+          reportUrlCitation: function (url, content) {
+            try {
+              const urlObj = new URL(url);
+              this.super.addCitation?.({
+                id: url,
+                title: urlObj.hostname + urlObj.pathname,
+                text: content,
+                chunkSource: `link://${url}`,
+                score: null,
+              });
+            } catch {
+              // URL parsing failed, still add citation without parsed title
+              this.super.addCitation?.({
+                id: url,
+                title: url,
+                text: content,
+                chunkSource: `link://${url}`,
+                score: null,
+              });
+            }
+          },
+
+          /**
+           * Scrape a website and summarize the content based on objective if the content is too large.
+           * Objective is the original objective & task that user give to the agent, url is the url of the website to be scraped.
+           * Here we can leverage the document collector to get raw website text quickly.
+           *
+           * @param url
+           * @returns
+           */
+          scrape: async function (url) {
+            this.super.introspect(
+              `${this.caller}: Scraping the content of ${url}`
+            );
+            const { success, content } =
+              await new CollectorApi().getLinkContent(url);
+
+            if (!success) {
+              this.super.introspect(
+                `${this.caller}: could not scrape ${url}. I can't use this page's content.`
+              );
+              throw new Error(
+                `URL could not be scraped and no content was found.`
+              );
+            }
+
+            if (!content || content?.length === 0) {
+              throw new Error("There was no content to be collected or read.");
+            }
+
+            this.reportUrlCitation(url, content);
+            const { TokenManager } = require("../../../helpers/tiktoken");
+            const tokenEstimate = new TokenManager(
+              this.super.model
+            ).countFromString(content);
+            if (
+              tokenEstimate <
+              Provider.contextLimit(this.super.provider, this.super.model)
+            ) {
+              this.super.introspect(
+                `${this.caller}: Looking over the content of the page. ~${tokenEstimate} tokens.`
+              );
+              return content;
+            }
+
+            this.super.introspect(
+              `${this.caller}: This page's content exceeds the model's context limit. Summarizing it right now.`
+            );
+            // Aborting is handled by the session abort signal that
+            // `summarizeContent` reads off the aibitat instance.
+            return summarizeContent({
+              provider: this.super.provider,
+              model: this.super.model,
+              content,
+              aibitat: this.super,
+            });
+          },
+        });
+      },
+    };
+  },
+};
+
+module.exports = {
+  webScraping,
+};

@@ -1,0 +1,1 @@
+- **docs(openapi):** document the conditionally management-authenticated, same-origin `POST /api/openapi/try` proxy contract and restore the release branch's operation-coverage ratchet ([#11363](https://github.com/diegosouzapw/OmniRoute/pull/11363))

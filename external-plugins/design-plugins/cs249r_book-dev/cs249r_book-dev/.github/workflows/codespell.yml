@@ -1,0 +1,45 @@
+# Codespell configuration is the [tool.codespell] block in pyproject.toml.
+# Single source of truth — do not duplicate skip lists or ignore words here.
+---
+name: Codespell
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  codespell:
+    name: Check for spelling errors
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      # We install codespell directly (rather than using the GitHub Action
+      # codespell-project/actions-codespell) because the action does not read
+      # pyproject.toml. Running the CLI with --toml lets [tool.codespell] in
+      # pyproject.toml stay the single source of truth for skip patterns and
+      # ignore words. tomli is needed on Python <3.11 only, but harmless here.
+      - name: Install codespell
+        run: pip install "codespell>=2.3" tomli
+
+      # Scan only git-tracked files. This way local build outputs (Quarto
+      # _build/, Next.js .next/out/, LaTeX paper.log/bbl, etc.) never produce
+      # phantom failures on contributor machines, and the CI scan stays
+      # restricted to source under version control. The skip list in
+      # pyproject.toml still applies (e.g. PDFs, vendored bundles).
+      - name: Run codespell on tracked files
+        shell: bash
+        run: |
+          git ls-files -z | xargs -0 codespell --toml pyproject.toml

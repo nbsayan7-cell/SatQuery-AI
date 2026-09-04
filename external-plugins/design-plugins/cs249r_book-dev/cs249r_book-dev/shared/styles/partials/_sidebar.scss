@@ -1,0 +1,87 @@
+// =============================================================================
+// SIDEBAR STYLES — Navigation sidebar links and section headers
+// =============================================================================
+//
+// Single source of truth for sidebar spacing across every Quarto site in the
+// ecosystem. Kept deliberately compact — the book's sidebar carries 60+ items
+// per volume and needs every vertical pixel for scanability. Horizontal
+// padding (6–8px) is still comfortable for mouse/touch targeting; it's the
+// vertical rhythm that has to stay tight. Previously this file padded links
+// more generously (4px top/bottom + explicit margin-top on section headers),
+// which left TinyTorch and the landing site looking airier than the book,
+// kits, labs, and mlsysim. Consolidated to the tight baseline on 2026-04-24
+// for a uniform look across all Quarto sites.
+//
+// Site-specific accent colors come from `$accent` defined in each site's
+// theme SCSS before this partial is imported.
+
+// When the sidebar has its own scroll container (Quarto sets this up once
+// the content exceeds the viewport), confine wheel-scroll inside it so
+// reaching the sidebar's top or bottom does NOT chain-scroll the body.
+// Without this, hovering-and-scrolling over the sidebar feels like you
+// were scrolling the page the whole time — which is exactly what the
+// reader is trying to avoid by engaging the sidebar in the first place.
+#quarto-sidebar,
+.sidebar-navigation {
+  overscroll-behavior: contain;
+}
+
+.sidebar-navigation .sidebar-item a {
+  color: #495057; // Readable but not competing with main content
+  font-weight: 400; // Normal weight — supportive not dominant
+  display: block;
+  padding: 2px 6px; // Tight vertical rhythm, comfortable horizontal target
+  margin: 0.5px 0; // Minimal vertical separation between consecutive items
+  border-radius: 3px;
+  transition: all 0.15s ease;
+
+  &:hover {
+    color: $accent; // Accent hover for interaction
+    background-color: rgba($accent, 0.08);
+    font-weight: 500; // Medium weight on hover
+    text-decoration: none;
+    transform: translateX(2px);
+  }
+
+  // Clear active state without overpowering
+  &.active,
+  &[aria-current="page"] {
+    color: $accent;
+    font-weight: 500; // Medium weight for active state
+    background-color: rgba($accent, 0.12);
+  }
+}
+
+// Section headers — clear hierarchy, same vertical rhythm as the items they
+// group so the sidebar reads as one continuous column (not as stacked cards).
+.sidebar-navigation .sidebar-item a[data-bs-toggle="collapse"] {
+  font-weight: 500; // Medium weight — clear but supportive
+  color: #2c3e50; // Dark but not competing with main content
+  font-size: 0.9rem; // Slightly larger for hierarchy
+  letter-spacing: 0.01em; // Subtle spacing for readability
+
+  &:hover {
+    color: $accent; // Accent hover
+    background-color: rgba($accent, 0.08);
+    font-weight: 600; // Bold on hover but not excessive
+    text-decoration: none;
+    transform: translateX(2px);
+  }
+}
+
+// Part divider styling — applied by JavaScript
+.part-divider {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: $accent; // Use accent color
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin: 16px 0 4px 0;
+  padding: 0 6px;
+  border-top: 1px solid #dee2e6;
+  padding-top: 12px;
+
+  &.part-labs {
+    color: #6c757d; // Gray for labs section
+  }
+}

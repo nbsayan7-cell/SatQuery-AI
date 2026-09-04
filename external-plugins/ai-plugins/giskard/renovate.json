@@ -1,0 +1,39 @@
+{
+    "schedule": [
+        "before 4am on Monday"
+    ],
+    "labels": [
+        "dependencies"
+    ],
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "minimumReleaseAge": "7 days",
+    "extends": [
+        "config:recommended",
+        "helpers:pinGitHubActionDigests",
+        ":pinOnlyDevDependencies"
+    ],
+    "packageRules": [
+        {
+            "rangeStrategy": "widen",
+            "matchManagers": [
+                "pep621"
+            ]
+        },
+        {
+            "matchPackageNames": [
+                "python"
+            ],
+            "enabled": false
+        },
+        {
+            "groupName": "{{manager}} dependencies",
+            "groupSlug": "{{manager}}-deps",
+            "matchUpdateTypes": [
+               "*"
+            ],
+            "matchPackageNames": [
+               "*"
+            ]
+         }
+    ]
+}

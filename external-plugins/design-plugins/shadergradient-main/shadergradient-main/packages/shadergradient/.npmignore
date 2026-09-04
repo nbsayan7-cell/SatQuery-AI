@@ -1,0 +1,32 @@
+# Exclude everything by default
+*
+
+# Then explicitly include only the necessary dist files
+!dist/**/*.mjs
+!dist/**/*.d.mts
+!dist/**/*.d.ts
+
+
+# Exclude unnecessary files even from dist
+dist/**/*.map
+dist/**/*.test.*
+dist/**/tests/**
+dist/**/__tests__/**
+
+# Development files (redundant but explicit)
+node_modules/
+src/
+examples/
+public/
+.turbo
+.cache
+.next
+
+# Build files
+tsup.config.ts
+tsup.framer.config.ts
+
+# Misc
+.git
+.gitignore
+README.md 

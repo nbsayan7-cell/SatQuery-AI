@@ -1,0 +1,59 @@
+name: Docker Compose Build Latest Main Image Tag (Manual Dispatch)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # Resolved once here rather than per build leg: the tag is an input to the
+  # publish, and the merge job needs it too.
+  resolve-tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      latest_tag: ${{ steps.tag.outputs.latest_tag }}
+      sha: ${{ steps.tag.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch tags and set the latest tag
+        id: tag
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          # `|| true` keeps pipefail from killing the step when grep matches
+          # nothing, so the explicit error below is reachable.
+          LATEST_TAG=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+[.][0-9]+[.][0-9]+$' | head -n 1 || true)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "::error::No stable v<semver> tag found"
+            exit 1
+          fi
+          printf 'latest_tag=%s\n' "$LATEST_TAG" >> "$GITHUB_OUTPUT"
+          # Pin the publish to the commit this job resolved the tag from. `main`
+          # is a moving ref: were each build leg to resolve it independently, the
+          # amd64 and arm64 halves of one release could come from different
+          # commits and still be published under the same tags.
+          printf 'sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: resolve-tag
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      images: >-
+        [{"target":"api-build","file":"Dockerfile.multi","image_name":"librechat-api"},
+         {"target":"node","file":"Dockerfile","image_name":"librechat"}]
+      tag_suffixes: |
+        ${{ needs.resolve-tag.outputs.latest_tag }}
+        latest
+      checkout_ref: ${{ needs.resolve-tag.outputs.sha }}
+      build_branch: main
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

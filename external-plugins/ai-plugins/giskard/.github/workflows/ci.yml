@@ -1,0 +1,118 @@
+name: Main CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout repository
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      # install-licensecheck pulls in the garak/deepteam trees that check-licenses and
+      # check-notices scan; without them licensecheck cannot read their license metadata.
+      - run: make install install-tools
+      - run: make check
+
+  test-examples:
+    name: test-examples
+    needs: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout repository
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: make install
+      - run: make test-examples
+
+  test-unit:
+    name: test-unit / ${{ matrix.package }} / ${{ matrix.python-version }}
+    needs: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout repository
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+        package: [giskard-core, giskard-llm, giskard-agents, giskard-checks, giskard-scan]
+    env:
+      PACKAGE: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - run: make install
+      - run: make test-unit PACKAGE=$PACKAGE
+
+  test-minimal:
+    name: test-minimal / ${{ matrix.package }}
+    needs: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout repository
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [giskard-llm, giskard-agents, giskard-checks]
+    env:
+      PACKAGE: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: make install-minimal
+      - run: make test-unit-minimal PACKAGE=$PACKAGE
+
+  test-no-providers:
+    name: test-no-providers / giskard-llm
+    needs: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout repository
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: make install-no-providers
+      - run: make test-no-providers

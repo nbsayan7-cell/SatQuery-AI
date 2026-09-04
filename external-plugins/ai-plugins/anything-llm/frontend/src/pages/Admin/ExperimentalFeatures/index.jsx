@@ -1,0 +1,301 @@
+import { useEffect, useState } from "react";
+import Sidebar from "@/components/SettingsSidebar";
+import { isMobile } from "react-device-detect";
+import Admin from "@/models/admin";
+import { FullScreenLoader } from "@/components/Preloader";
+import { CaretRight, Flask } from "@phosphor-icons/react";
+import { configurableFeatures } from "./features";
+import Modal, {
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalPrimaryButton,
+} from "@/components/lib/Modal";
+import paths from "@/utils/paths";
+import showToast from "@/utils/toast";
+
+export default function ExperimentalFeatures() {
+  const [featureFlags, setFeatureFlags] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [selectedFeature, setSelectedFeature] = useState(
+    "experimental_live_file_sync"
+  );
+
+  useEffect(() => {
+    async function fetchSettings() {
+      setLoading(true);
+      const { settings } = await Admin.systemPreferencesByFields([
+        "feature_flags",
+      ]);
+      setFeatureFlags(settings?.feature_flags ?? {});
+      setLoading(false);
+    }
+    fetchSettings();
+  }, []);
+
+  const refresh = async () => {
+    const { settings } = await Admin.systemPreferencesByFields([
+      "feature_flags",
+    ]);
+    setFeatureFlags(settings?.feature_flags ?? {});
+  };
+
+  if (loading) {
+    return (
+      <div
+        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+        className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] w-full h-full flex justify-center items-center"
+      >
+        <FullScreenLoader />
+      </div>
+    );
+  }
+
+  return (
+    <FeatureLayout>
+      <div className="flex-1 flex gap-x-6 p-4 mt-10">
+        {/* Feature settings nav */}
+        <div className="flex flex-col gap-y-[18px]">
+          <div className="text-white flex items-center gap-x-2">
+            <Flask size={24} />
+            <p className="text-lg font-medium">Experimental Features</p>
+          </div>
+          {/* Feature list */}
+          <div className="bg-theme-bg-secondary text-white rounded-xl min-w-[360px] w-fit">
+            {Object.values(configurableFeatures).map((feature, index) => {
+              const isFirst = index === 0;
+              const isLast =
+                index === Object.values(configurableFeatures).length - 1;
+              return (
+                <FeatureItem
+                  key={feature.key}
+                  feature={feature}
+                  isSelected={selectedFeature === feature.key}
+                  isActive={featureFlags[feature.key]}
+                  handleClick={setSelectedFeature}
+                  borderClass={[
+                    ...(isFirst ? ["rounded-t-xl"] : []),
+                    ...(isLast
+                      ? ["rounded-b-xl"]
+                      : ["border-b border-white/10"]),
+                  ].join(" ")}
+                />
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Selected feature setting panel */}
+        <FeatureVerification>
+          <div className="flex-[2] flex flex-col gap-y-[18px] mt-10">
+            <div className="bg-theme-bg-secondary text-white rounded-xl flex-1 p-4">
+              {selectedFeature ? (
+                <SelectedFeatureComponent
+                  feature={configurableFeatures[selectedFeature]}
+                  settings={featureFlags}
+                  refresh={refresh}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-white/60">
+                  <Flask size={40} />
+                  <p className="font-medium">Select an experimental feature</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </FeatureVerification>
+      </div>
+    </FeatureLayout>
+  );
+}
+
+function FeatureLayout({ children }) {
+  return (
+    <div
+      id="workspace-feature-settings-container"
+      className="w-screen h-screen overflow-hidden bg-theme-bg-container flex md:mt-0 mt-6"
+    >
+      <Sidebar />
+      <div
+        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+        className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] w-full h-full flex"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function FeatureItem({
+  feature = {},
+  isSelected = false,
+  isActive = false,
+  handleClick = () => {},
+  borderClass = "border-b border-white/10",
+}) {
+  return (
+    <div
+      key={feature.key}
+      className={`py-3 px-4 flex items-center justify-between cursor-pointer transition-all duration-300 hover:bg-white/5 ${borderClass} ${
+        isSelected ? "bg-white/10 light:bg-theme-bg-sidebar" : ""
+      }`}
+      onClick={() => {
+        if (feature?.href) window.location = feature.href;
+        else handleClick?.(feature.key);
+      }}
+    >
+      <div className="text-sm font-light">{feature.title}</div>
+      <div className="flex items-center gap-x-2">
+        {feature.autoEnabled ? (
+          <>
+            <div className="text-sm text-theme-text-secondary font-medium">
+              On
+            </div>
+            <div className="w-[14px]" />
+          </>
+        ) : (
+          <>
+            <div className="text-sm text-theme-text-secondary font-medium">
+              {isActive ? "On" : "Off"}
+            </div>
+            <CaretRight
+              size={14}
+              weight="bold"
+              className="text-theme-text-secondary"
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SelectedFeatureComponent({ feature, settings, refresh }) {
+  const Component = feature?.component;
+  return Component ? (
+    <Component
+      enabled={settings[feature.key]}
+      feature={feature.key}
+      onToggle={refresh}
+    />
+  ) : null;
+}
+
+function FeatureVerification({ children }) {
+  if (
+    !window.localStorage.getItem("anythingllm_tos_experimental_feature_set")
+  ) {
+    function acceptTos(e) {
+      e.preventDefault();
+
+      window.localStorage.setItem(
+        "anythingllm_tos_experimental_feature_set",
+        "accepted"
+      );
+      showToast(
+        "Experimental Feature set enabled. Reloading the page.",
+        "success"
+      );
+      setTimeout(() => {
+        window.location.reload();
+      }, 2_500);
+      return;
+    }
+
+    return (
+      <>
+        <Modal isOpen={true} size="lg" closeOnEsc={false}>
+          <form onSubmit={acceptTos} className="flex flex-col gap-y-5">
+            <ModalHeader
+              title={
+                <span className="flex items-center gap-2">
+                  <Flask size={24} />
+                  Terms of use for experimental features
+                </span>
+              }
+            />
+            <ModalBody>
+              <div className="w-full text-zinc-300 light:text-slate-700 text-md flex flex-col gap-y-4">
+                <p>
+                  Experimental features of AnythingLLM are features that we are
+                  piloting and are <b>opt-in</b>. We proactively will condition
+                  or warn you on any potential concerns should any exist prior
+                  to approval of any feature.
+                </p>
+
+                <div>
+                  <p>
+                    Use of any feature on this page can result in, but not
+                    limited to, the following possibilities.
+                  </p>
+                  <ul className="list-disc ml-6 text-sm font-mono mt-2">
+                    <li>Loss of data.</li>
+                    <li>Change in quality of results.</li>
+                    <li>Increased storage.</li>
+                    <li>Increased resource consumption.</li>
+                    <li>
+                      Increased cost or use of any connected LLM or embedding
+                      provider.
+                    </li>
+                    <li>Potential bugs or issues using AnythingLLM.</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <p>
+                    Use of an experimental feature also comes with the following
+                    list of non-exhaustive conditions.
+                  </p>
+                  <ul className="list-disc ml-6 text-sm font-mono mt-2">
+                    <li>Feature may not exist in future updates.</li>
+                    <li>The feature being used is not currently stable.</li>
+                    <li>
+                      The feature may not be available in future versions,
+                      configurations, or subscriptions of AnythingLLM.
+                    </li>
+                    <li>
+                      Your privacy settings <b>will be honored</b> with use of
+                      any beta feature.
+                    </li>
+                    <li>These conditions may change in future updates.</li>
+                  </ul>
+                </div>
+
+                <p>
+                  Access to any features requires approval of this modal. If you
+                  would like to read more you can refer to{" "}
+                  <a
+                    href="https://docs.anythingllm.com/beta-preview/overview"
+                    className="underline text-blue-500"
+                  >
+                    docs.anythingllm.com
+                  </a>{" "}
+                  or email{" "}
+                  <a
+                    href="mailto:team@mintplexlabs.com"
+                    className="underline text-blue-500"
+                  >
+                    team@mintplexlabs.com
+                  </a>
+                </p>
+              </div>
+            </ModalBody>
+            <ModalFooter>
+              <a
+                href={paths.home()}
+                className="flex items-center justify-center h-[34px] px-4 rounded-lg text-sm font-medium transition-all duration-200 bg-transparent border border-zinc-700 light:border-slate-600 text-slate-50 light:text-slate-700 hover:bg-red-500/50 light:hover:bg-red-300/50"
+              >
+                Reject & close
+              </a>
+              <ModalPrimaryButton type="submit">
+                I understand
+              </ModalPrimaryButton>
+            </ModalFooter>
+          </form>
+        </Modal>
+        {children}
+      </>
+    );
+  }
+  return <>{children}</>;
+}

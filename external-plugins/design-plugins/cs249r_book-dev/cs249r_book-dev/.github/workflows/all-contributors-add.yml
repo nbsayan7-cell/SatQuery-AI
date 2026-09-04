@@ -1,0 +1,661 @@
+name: '🔧 Infra · 🤖 All Contributors Add'
+
+# =============================================================================
+# 🤖 All Contributors Add — LLM-powered contributor recognition from comments
+# =============================================================================
+#
+# When someone comments with @all-contributors, extracts the username via regex
+# and classifies contribution types via Ollama LLM. Project detection is fully
+# deterministic (comment text > PR file paths > issue labels).
+#
+# Flow:
+#   1. EXTRACT   — Parse @mention username and detect project(s) deterministically
+#   2. CLASSIFY  — LLM classifies contribution type(s) from natural language
+#   3. VALIDATE  — Combine regex username + LLM types + deterministic project
+#   4. UPDATE    — Modify .all-contributorsrc, regenerate README tables, commit
+#   5. RESPOND   — Post success comment or ask for clarification
+#
+# Triggers:
+#   - issue_comment: When a comment contains @all-contributors
+#
+# Secrets:    GITHUB_TOKEN (automatic)
+#
+# Related:
+#   - update-contributors.yml — Regenerates contributor tables from config files
+#
+# =============================================================================
+
+on:
+  issue_comment:
+    types: [created, edited]
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+# Workflow knobs only. The list of projects, their directories, aliases, and
+# section metadata lives in `.github/workflows/contributors/projects.json` —
+# edit that file (and only that file) to add or rename a project. PROJECTS,
+# PROJECT_ALIASES, and PROJECT_DIRS are loaded from there at the top of the
+# job and exported to $GITHUB_ENV for every subsequent step.
+# =============================================================================
+env:
+  # LLM Configuration. Kept in sync with all-contributors-auto-credit.yml —
+  # both workflows should run the same model so credit decisions are
+  # consistent whether the trigger comes from a human comment or an
+  # auto-merge post.
+  LLM_MODEL: 'gemma3:12b'
+
+  # Git Configuration
+  TARGET_BRANCH: 'dev'
+
+  # Valid contribution types (comma-separated). These are the keys the LLM is
+  # allowed to emit and that the deterministic regex fallback scans for.
+  CONTRIBUTION_TYPES: 'bug,code,doc,design,ideas,review,test,tool'
+
+jobs:
+  add-contributor:
+    name: Add Contributor
+    # Only run if comment contains the trigger phrase
+    if: contains(github.event.comment.body, '@all-contributors')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      # =====================================================================
+      # STEP 0: Load the projects config (projects.json → $GITHUB_ENV)
+      # =====================================================================
+      # Sparse-checkout just the helper + config so we can populate PROJECTS,
+      # PROJECT_ALIASES, and PROJECT_DIRS for every later step. The full
+      # checkout in STEP 4 happens after parse passes (avoids paying for it
+      # on malformed comments).
+      - name: Checkout projects config (sparse)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          sparse-checkout: |
+            .github/workflows/contributors/projects.json
+            .github/workflows/contributors/projects.py
+          sparse-checkout-cone-mode: false
+
+      - name: Export project env from projects.json
+        shell: bash
+        run: |
+          {
+            echo "PROJECTS=$(python3 .github/workflows/contributors/projects.py keys)"
+            echo "PROJECT_ALIASES=$(python3 .github/workflows/contributors/projects.py aliases)"
+            echo "PROJECT_DIRS=$(python3 .github/workflows/contributors/projects.py dirs-overrides)"
+          } >> "$GITHUB_ENV"
+
+      # =====================================================================
+      # STEP 1: Extract trigger line + detect project from PR files
+      # =====================================================================
+      - name: Extract trigger line, username, and detect project
+        id: extract
+        uses: actions/github-script@v9
+        env:
+          PROJECTS: ${{ env.PROJECTS }}
+          PROJECT_ALIASES: ${{ env.PROJECT_ALIASES }}
+          PROJECT_DIRS: ${{ env.PROJECT_DIRS }}
+        with:
+          script: |
+            const body = context.payload.comment.body;
+
+            // Find the line containing @all-contributors
+            const lines = body.split('\n');
+            const triggerLine = lines.find(line => line.includes('@all-contributors'));
+
+            if (!triggerLine) {
+              console.log('No @all-contributors line found');
+              core.setOutput('should_run', 'false');
+              return;
+            }
+
+            console.log('Trigger line:', triggerLine);
+
+            // --- Configuration ---
+            const validProjects = process.env.PROJECTS.split(',');
+            const projectAliases = {};
+            if (process.env.PROJECT_ALIASES) {
+              process.env.PROJECT_ALIASES.split(',').forEach(pair => {
+                const [alias, proj] = pair.split(':');
+                if (alias && proj) projectAliases[alias.trim()] = proj.trim();
+              });
+            }
+
+            // project key → on-disk directory (defaults to project name)
+            const projectDirs = {};
+            for (const p of validProjects) projectDirs[p] = p;
+            if (process.env.PROJECT_DIRS) {
+              process.env.PROJECT_DIRS.split(',').forEach(pair => {
+                const [proj, dir] = pair.split(':');
+                if (proj && dir) projectDirs[proj.trim()] = dir.trim();
+              });
+            }
+            // reverse lookup for PR-file detection: directory → project key
+            const dirToProject = {};
+            for (const [proj, dir] of Object.entries(projectDirs)) {
+              dirToProject[dir] = proj;
+            }
+
+            // --- Helper: detect ALL project names in text (for multi-project support) ---
+            const detectProjectsInText = (text) => {
+              const lower = text.toLowerCase();
+              const found = new Set();
+              for (const p of validProjects) {
+                if (lower.includes(p)) found.add(p);
+              }
+              for (const [alias, proj] of Object.entries(projectAliases)) {
+                if (lower.includes(alias)) found.add(proj);
+              }
+              return [...found];
+            };
+
+            // --- Get issue/PR context ---
+            const issue = context.payload.issue;
+            const labels = issue.labels.map(l => l.name.toLowerCase());
+            const issueContext = `Issue title: ${issue.title}\nLabels: ${labels.join(', ') || 'none'}`;
+
+            // =============================================================
+            // PROJECT DETECTION (deterministic, priority order)
+            // Supports multiple projects in one comment, e.g. "in TinyTorch, Book, Kits"
+            // =============================================================
+            let projects = [];
+            let projectSource = 'unknown';
+
+            // Priority 1: Explicit mention(s) in the trigger comment (can be multiple)
+            const commentProjects = detectProjectsInText(triggerLine);
+            if (commentProjects.length > 0) {
+              projects = commentProjects;
+              projectSource = 'comment';
+              console.log(`Projects from comment: ${JSON.stringify(projects)}`);
+            }
+
+            // Priority 2: PR changed files (top-level dir → project)
+            if (projects.length === 0 && issue.pull_request) {
+              try {
+                const { data: files } = await github.rest.pulls.listFiles({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: issue.number,
+                  per_page: 100
+                });
+
+                const projectCounts = {};
+                for (const file of files) {
+                  const topDir = file.filename.split('/')[0];
+                  // Map directory → canonical project key (e.g. interviews → staffml)
+                  const proj = dirToProject[topDir];
+                  if (proj) {
+                    projectCounts[proj] = (projectCounts[proj] || 0) + 1;
+                  }
+                }
+
+                const detected = Object.keys(projectCounts);
+                console.log('PR file project counts:', JSON.stringify(projectCounts));
+
+                if (detected.length === 1) {
+                  projects = [detected[0]];
+                  projectSource = 'pr_files';
+                  console.log(`Project from PR files: "${projects[0]}"`);
+                } else if (detected.length > 1) {
+                  projectSource = 'ambiguous';
+                  console.log('PR spans multiple projects:', detected.join(', '));
+                }
+              } catch (e) {
+                console.log('Could not fetch PR files:', e.message);
+              }
+            }
+
+            // Priority 3: Issue labels / title
+            if (projects.length === 0) {
+              const contextProjects = detectProjectsInText(issueContext);
+              if (contextProjects.length > 0) {
+                projects = contextProjects;
+                projectSource = 'issue_context';
+                console.log(`Projects from issue context: ${JSON.stringify(projects)}`);
+              }
+            }
+
+            console.log(`Final projects: ${JSON.stringify(projects)} (source: ${projectSource})`);
+
+            // =============================================================
+            // USERNAME EXTRACTION (deterministic — regex, not LLM)
+            // =============================================================
+            const mentions = triggerLine.match(/@([\w][\w-]*)/g);
+            const cleanMentions = mentions
+              ? mentions.map(m => m.replace(/^@/, '')).filter(m => m !== 'all-contributors')
+              : [];
+
+            const username = cleanMentions.length > 0 ? cleanMentions[0] : '';
+            console.log(`Username from @mention: "${username}"`);
+
+            if (!username) {
+              console.log('No username @mention found in trigger line');
+            }
+
+            core.setOutput('should_run', 'true');
+            core.setOutput('trigger_line', triggerLine);
+            core.setOutput('username', username);
+            core.setOutput('issue_context', issueContext);
+            core.setOutput('projects', JSON.stringify(projects));
+            core.setOutput('project', projects.length > 0 ? projects[0] : '');
+            core.setOutput('project_source', projectSource);
+
+      # =====================================================================
+      # STEP 2: LLM classifies contribution types ONLY (username is from regex)
+      # =====================================================================
+      - name: Classify contribution types with LLM
+        if: steps.extract.outputs.should_run == 'true' && steps.extract.outputs.username != ''
+        uses: ai-action/ollama-action@v2
+        id: llm
+        with:
+          model: ${{ env.LLM_MODEL }}
+          prompt: |
+            Classify the contribution type(s) from this comment.
+
+            COMMENT: ${{ steps.extract.outputs.trigger_line }}
+
+            CONTRIBUTION TYPES (pick one or more):
+            - bug: Found or reported a bug, identified issues, root-caused a failure
+            - code: Wrote code, implemented features, fixed bugs
+            - doc: Wrote documentation, improved docs, fixed typos
+            - design: UI/UX design, visual design, architecture design
+            - ideas: Suggested ideas, proposed features, brainstormed
+            - review: Reviewed code or PRs, gave feedback on changes
+            - test: Tested features, verified fixes, QA testing
+            - tool: Built tools, scripts, automation, CLI utilities
+
+            Return ONLY a JSON object with exactly this field:
+            {
+              "types": ["<contribution-type>"]
+            }
+
+            RULES:
+            - types: Array of one or more contribution types from the list above.
+            - If the comment lists multiple types (separated by comma, slash, "and",
+              "&", "+", or whitespace), return ALL of them — do not collapse to one.
+            - Ignore emoji, punctuation, casing, and Markdown formatting when
+              identifying types. Treat "🪲 Bug,Code", "Bug & Code", "bug/code",
+              and "bug, code" as identical inputs that yield ["bug", "code"].
+            - Do NOT include username or project fields. Those are detected separately.
+
+            EXAMPLES:
+            Input: "@all-contributors @jane-doe fixed typos in the documentation"
+            Output: {"types": ["doc"]}
+
+            Input: "@all-contributors @dev42 implemented the new feature and wrote tests"
+            Output: {"types": ["code", "test"]}
+
+            Input: "@all-contributors please add @user123 for code"
+            Output: {"types": ["code"]}
+
+            Input: "@all-contributors @reviewer99 gave feedback on the PR"
+            Output: {"types": ["review"]}
+
+            Input: "@all-contributors please add @user42 for 🪲 Bug,Code in Labs"
+            Output: {"types": ["bug", "code"]}
+
+            Input: "@all-contributors @maintainer for Doc & Review in tinytorch"
+            Output: {"types": ["doc", "review"]}
+
+            Return ONLY the JSON object, no explanation or other text.
+
+      # =====================================================================
+      # STEP 3: Parse LLM types + combine with deterministic username & project
+      # =====================================================================
+      - name: Validate and combine results
+        if: steps.extract.outputs.should_run == 'true'
+        id: parse
+        uses: actions/github-script@v9
+        env:
+          LLM_RESPONSE: ${{ steps.llm.outputs.response || '' }}
+          USERNAME: ${{ steps.extract.outputs.username }}
+          TRIGGER_LINE: ${{ steps.extract.outputs.trigger_line }}
+          PROJECTS_JSON: ${{ steps.extract.outputs.projects }}
+          PROJECT_SOURCE: ${{ steps.extract.outputs.project_source }}
+          CONTRIBUTION_TYPES: ${{ env.CONTRIBUTION_TYPES }}
+          PROJECTS: ${{ env.PROJECTS }}
+        with:
+          script: |
+            const response = process.env.LLM_RESPONSE || '';
+            const username = process.env.USERNAME || '';
+            const triggerLine = process.env.TRIGGER_LINE || '';
+            const validTypes = process.env.CONTRIBUTION_TYPES.split(',');
+            const validProjects = process.env.PROJECTS.split(',');
+
+            let projects = [];
+            try {
+              projects = JSON.parse(process.env.PROJECTS_JSON || '[]');
+              if (!Array.isArray(projects)) projects = [];
+            } catch (e) {
+              console.log('Failed to parse projects JSON');
+            }
+            const projectSource = process.env.PROJECT_SOURCE || '';
+
+            console.log('Username (from regex):', username);
+            console.log('LLM response:', response);
+            console.log('Projects:', JSON.stringify(projects), `(source: ${projectSource})`);
+
+            // --- Validate username (extracted deterministically in Step 1) ---
+            if (!username) {
+              core.setOutput('success', 'false');
+              core.setOutput('error', 'no_username');
+              return;
+            }
+
+            // --- Parse contribution types from LLM response ---
+            let types = [];
+            try {
+              const jsonMatch = response.match(/\{[\s\S]*?\}/);
+              if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (parsed.types && Array.isArray(parsed.types)) {
+                  types = parsed.types
+                    .map(t => t.toLowerCase().trim())
+                    .filter(t => validTypes.includes(t));
+                }
+              }
+            } catch (e) {
+              console.log('Failed to parse LLM JSON:', e.message);
+            }
+
+            // --- Deterministic fallback / safety net ---
+            // Scan the trigger line directly for whole-word type keywords. This
+            // protects against the LLM dropping a type when the comment is
+            // emoji-prefixed or has tight punctuation (e.g. "🪲 Bug,Code").
+            // We union with the LLM result so we never *lose* a type, but we
+            // still rely on the LLM for ambiguous natural-language phrasing.
+            const stripped = triggerLine
+              .toLowerCase()
+              .replace(/[^a-z0-9\s,/&+]/g, ' ');
+            const tokenRe = /\b(bug|code|doc|design|ideas|review|test|tool)\b/g;
+            const regexTypes = new Set();
+            let m;
+            while ((m = tokenRe.exec(stripped)) !== null) {
+              if (validTypes.includes(m[1])) regexTypes.add(m[1]);
+            }
+            if (regexTypes.size > 0) {
+              const merged = new Set([...types, ...regexTypes]);
+              const before = JSON.stringify(types);
+              types = [...merged];
+              console.log(`Type union — LLM=${before} regex=${JSON.stringify([...regexTypes])} -> ${JSON.stringify(types)}`);
+            }
+
+            // --- Validate types ---
+            if (types.length === 0) {
+              core.setOutput('success', 'false');
+              core.setOutput('error', 'no_types');
+              core.setOutput('username', username);
+              return;
+            }
+
+            // --- Validate projects (one or more, all must be valid) ---
+            const validProjectList = projects.filter(p => p && validProjects.includes(p));
+            if (validProjectList.length === 0) {
+              console.log('No valid project(s) detected — will ask user');
+              core.setOutput('success', 'false');
+              core.setOutput('error', 'no_project');
+              core.setOutput('username', username);
+              core.setOutput('types', JSON.stringify(types));
+              core.setOutput('project_source', projectSource);
+              return;
+            }
+
+            // --- All good (may have multiple projects) ---
+            console.log('Final result:', { username, types, projects: validProjectList, projectSource });
+
+            core.setOutput('success', 'true');
+            core.setOutput('username', username);
+            core.setOutput('types', JSON.stringify(types));
+            core.setOutput('projects', JSON.stringify(validProjectList));
+            core.setOutput('project', validProjectList[0]);
+            core.setOutput('project_source', projectSource);
+
+      # =====================================================================
+      # STEP 4: Checkout, update config, generate READMEs, commit
+      # =====================================================================
+      # Full checkout. Supersedes the sparse checkout from STEP 0 — at this
+      # point we've passed parse and need every project's .all-contributorsrc,
+      # READMEs, and the generator scripts to update them.
+      #
+      # actions/checkout@v6 does NOT auto-clear sparse-checkout state from a
+      # prior invocation in the same job. The .git/info/sparse-checkout file
+      # and core.sparseCheckout config persist; passing sparse-checkout: ''
+      # is interpreted as "empty include list" rather than "disable sparse",
+      # so the working tree stays restricted to .github/workflows/contributors/.
+      # Every project's .all-contributorsrc then looks missing.
+      #
+      # The reliable fix: explicitly disable sparse mode via the git porcelain
+      # before re-checking out, then full-clone normally.
+      - name: Disable lingering sparse-checkout state
+        if: steps.extract.outputs.should_run == 'true' && steps.parse.outputs.success == 'true'
+        shell: bash
+        run: |
+          # No-op if sparse mode isn't active. Tolerant of either path.
+          git sparse-checkout disable 2>/dev/null || true
+          rm -f .git/info/sparse-checkout
+
+      - name: Checkout repository (full)
+        if: steps.extract.outputs.should_run == 'true' && steps.parse.outputs.success == 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+
+      - name: Setup Python
+        if: steps.extract.outputs.should_run == 'true' && steps.parse.outputs.success == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Apply contributor credit
+        id: apply
+        if: steps.extract.outputs.should_run == 'true' && steps.parse.outputs.success == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/workflows/contributors/add_contributor.py \
+            --username '${{ steps.parse.outputs.username }}' \
+            --types '${{ steps.parse.outputs.types }}' \
+            --projects '${{ steps.parse.outputs.projects }}'
+
+      - name: Configure Git
+        if: steps.extract.outputs.should_run == 'true' && steps.parse.outputs.success == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit and push changes
+        if: steps.extract.outputs.should_run == 'true' && steps.parse.outputs.success == 'true'
+        env:
+          PROJECT_DIRS: ${{ env.PROJECT_DIRS }}
+        run: |
+          PROJECTS_JSON='${{ steps.apply.outputs.updated_projects }}'
+          USERNAME="${{ steps.parse.outputs.username }}"
+          TYPES=$(echo '${{ steps.parse.outputs.types }}' | python3 -c "import sys,json; print(', '.join(json.load(sys.stdin)))")
+          PROJECTS_LIST=$(echo "$PROJECTS_JSON" | python3 -c "import sys,json; print(', '.join(json.load(sys.stdin)))")
+
+          # Stage contributor files for each project, resolving project key →
+          # on-disk directory via PROJECT_DIRS overrides (e.g. staffml → interviews).
+          DIRS=$(echo "$PROJECTS_JSON" | PROJECT_DIRS="$PROJECT_DIRS" python3 -c '
+          import json, os, sys
+          projects = json.load(sys.stdin)
+          overrides = {}
+          for pair in os.environ.get("PROJECT_DIRS", "").split(","):
+              pair = pair.strip()
+              if ":" in pair:
+                  proj, _, d = pair.partition(":")
+                  if proj and d:
+                      overrides[proj.strip()] = d.strip()
+          print(" ".join(overrides.get(p, p) for p in projects))
+          ')
+          for dir in $DIRS; do
+            git add "${dir}/.all-contributorsrc" "${dir}/README.md" 2>/dev/null || true
+          done
+          git add README.md 2>/dev/null || true
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "docs: add @${USERNAME} as contributor for ${TYPES} (${PROJECTS_LIST})"
+            git pull --rebase origin ${{ env.TARGET_BRANCH }}
+            git push origin ${{ env.TARGET_BRANCH }}
+            echo "Changes committed and pushed!"
+          fi
+
+      # =====================================================================
+      # STEP 5: Post success comment
+      # =====================================================================
+      - name: React to comment
+        if: steps.extract.outputs.should_run == 'true' && steps.parse.outputs.success == 'true'
+        uses: actions/github-script@v9
+        env:
+          PROJECT_DIRS: ${{ env.PROJECT_DIRS }}
+        with:
+          script: |
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: '+1'
+            });
+
+            const username = '${{ steps.parse.outputs.username }}';
+            const projects = JSON.parse('${{ steps.apply.outputs.updated_projects }}');
+            const projectSource = '${{ steps.parse.outputs.project_source }}';
+            const types = JSON.parse('${{ steps.parse.outputs.types }}');
+            const triggerLine = `${{ steps.extract.outputs.trigger_line }}`;
+
+            // project key → on-disk directory (used in the file paths shown in the
+            // success comment so they actually exist on disk, e.g. staffml → interviews).
+            const projectDirs = {};
+            if (process.env.PROJECT_DIRS) {
+              process.env.PROJECT_DIRS.split(',').forEach(pair => {
+                const [proj, dir] = pair.split(':');
+                if (proj && dir) projectDirs[proj.trim()] = dir.trim();
+              });
+            }
+            const dirFor = (p) => projectDirs[p] || p;
+
+            const sourceLabels = {
+              comment: 'explicitly mentioned in comment',
+              pr_files: 'detected from PR changed files',
+              issue_context: 'detected from issue labels/title'
+            };
+            const sourceNote = sourceLabels[projectSource] || projectSource;
+
+            const projectList = projects.length === 1 ? projects[0] : projects.join(', ');
+            const filesList = projects.map(p => `- \`${dirFor(p)}/.all-contributorsrc\`, \`${dirFor(p)}/README.md\``).join('\n');
+
+            const body = [
+              "I've added @" + username + " as a contributor" + (projects.length > 1 ? " to **" + projectList + "**" : " to **" + projects[0] + "**") + "! :tada:",
+              "",
+              "**Recognized for:** " + types.join(', '),
+              "**Project(s):** " + projectList + " (" + sourceNote + ")",
+              "**Based on:** " + triggerLine,
+              "",
+              "The contributor list has been updated in:",
+              filesList,
+              "- Main `README.md`",
+              "",
+              "We love recognizing our contributors! :heart:"
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+
+      # =====================================================================
+      # STEP 6: Handle failures — ask user when project is unknown
+      # =====================================================================
+      - name: Handle parsing failure
+        if: steps.extract.outputs.should_run == 'true' && steps.parse.outputs.success == 'false'
+        uses: actions/github-script@v9
+        env:
+          PROJECTS: ${{ env.PROJECTS }}
+        with:
+          script: |
+            const error = '${{ steps.parse.outputs.error }}';
+            const triggerLine = `${{ steps.extract.outputs.trigger_line }}`;
+            const projects = process.env.PROJECTS.split(',');
+            const projectSource = '${{ steps.parse.outputs.project_source }}' || '';
+            const username = '${{ steps.parse.outputs.username }}' || '';
+            const typesRaw = '${{ steps.parse.outputs.types }}' || '[]';
+            const types = (() => { try { return JSON.parse(typesRaw); } catch { return []; } })();
+
+            let body;
+
+            if (error === 'no_project') {
+              // === PROJECT UNKNOWN — ask the user ===
+              const userPart = username ? ` @${username}` : '';
+              const typesPart = types.length > 0 ? ` for ${types.join(', ')}` : ' for code';
+
+              if (projectSource === 'ambiguous') {
+                body = [
+                  "This PR touches files in **multiple projects**, so I need you to tell me which one(s). :thinking:",
+                  "",
+                  `I detected${userPart}${typesPart}, but which project(s) should I add them to?`,
+                  "",
+                  "You can specify **one or more** projects in your reply, e.g.:",
+                  "- `@all-contributors" + userPart + typesPart + " in tinytorch`",
+                  "- `@all-contributors" + userPart + typesPart + " in tinytorch, book, kits`",
+                  "",
+                  "Options: " + projects.map(p => `\`${p}\``).join(', '),
+                ].join('\n');
+              } else {
+                body = [
+                  `I couldn't determine which project(s) to add the contributor to. :thinking:`,
+                  "",
+                  "**Your comment:** " + triggerLine,
+                  "",
+                  "This repo has multiple projects. Specify one or more explicitly, e.g.:",
+                  "- `@all-contributors" + userPart + typesPart + " in tinytorch`",
+                  "- `@all-contributors" + userPart + typesPart + " in TinyTorch, Book, Kits`",
+                  "",
+                  "**How project detection works:**",
+                  "- **In comment:** Say \"in TinyTorch\", \"for book, labs\", etc. (multiple projects OK)",
+                  "- **On PRs:** Auto-detected from changed file paths when only one project is touched",
+                  "- **On issues:** From labels or title, or specify in the comment",
+                ].join('\n');
+              }
+            } else {
+              // === Other errors (no_username, no_types) ===
+              let errorMsg = "I couldn't parse that comment.";
+              if (error === 'no_username') {
+                errorMsg = "I couldn't find a GitHub username in that comment.";
+              } else if (error === 'no_types') {
+                errorMsg = "I couldn't determine the contribution type.";
+              }
+
+              body = [
+                errorMsg + " :thinking:",
+                "",
+                "**Your comment:** " + triggerLine,
+                "",
+                "**Example formats that work:**",
+                "```",
+                "@all-contributors @jane-doe fixed typos in the documentation",
+                "@all-contributors please add @john_smith for Doc in TinyTorch",
+                "@all-contributors @user123 for code, doc in tinytorch, book",
+                "@all-contributors @dev42 implemented the new caching feature in tinytorch",
+                "```",
+                "",
+                "**Contribution types:** bug, code, doc, design, ideas, review, test, tool",
+                "",
+                `**Projects (one or more):** ${projects.join(', ')} — specify in comment (e.g. "in TinyTorch, Book") or auto-detected from PR file paths.`
+              ].join('\n');
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });

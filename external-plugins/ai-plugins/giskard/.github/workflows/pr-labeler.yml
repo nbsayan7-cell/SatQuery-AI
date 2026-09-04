@@ -1,0 +1,21 @@
+name: Pull Request Labeler
+
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] no checkout, no run steps — only applies labels via actions/labeler
+    types: [opened, synchronize]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  labeler:
+    name: labeler
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # read repository file patterns
+      pull-requests: write # apply labels to PRs
+    steps:
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0

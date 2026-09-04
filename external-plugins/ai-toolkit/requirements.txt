@@ -1,0 +1,26 @@
+# Python AI Toolkit — God's Eye View
+# Install: pip install -r requirements.txt
+# Or use: ai-toolkit/setup.ps1
+
+# ── Agent Orchestration ─────────────────────────────
+crewai>=0.80.0
+langgraph>=0.2.0
+
+# ── Prompt Optimization ─────────────────────────────
+dspy>=2.5.0
+
+# ── Document Analysis & RAG ─────────────────────────
+# ragflow-sdk  # Uncomment when ragflow PyPI package is available
+
+# ── Knowledge Graphs ────────────────────────────────
+graphiti-core>=0.5.0
+
+# ── AI Security Testing ─────────────────────────────
+giskard>=2.15.0
+
+# ── Core Dependencies ───────────────────────────────
+langchain>=0.3.0
+langchain-openai>=0.2.0
+openai>=1.50.0
+httpx>=0.27.0
+pydantic>=2.9.0

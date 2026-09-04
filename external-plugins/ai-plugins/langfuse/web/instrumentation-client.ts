@@ -1,0 +1,134 @@
+import * as Sentry from "@sentry/nextjs";
+import {
+  isDenylistedNoiseEvent,
+  isNoisyHttpClientPollEvent,
+  isPosthogRecorderInternalEvent,
+  isReactDevtoolsInternalEvent,
+  isStaleChunkParseErrorEvent,
+  STALE_CHUNK_PARSE_FINGERPRINT,
+} from "@/src/utils/sentryFilters";
+import { applyCachedV4BetaEnabledSentryTag } from "@/src/utils/sentryV4BetaTag";
+
+// Isolation-scope tags are copied onto the pageload transaction at start.
+// Session hydrate (and the v4 flag) arrives after that, so apply the last-known
+// cache before init. Missing cache leaves the tag unset rather than guessing false.
+applyCachedV4BetaEnabledSentryTag();
+
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT,
+  release: process.env.NEXT_PUBLIC_BUILD_ID,
+
+  beforeSend(event) {
+    // Drop React DevTools' internal probes against React's private fiber
+    // properties - benign, DevTools-only noise. See isReactDevtoolsInternalEvent
+    // for the rationale.
+    if (isReactDevtoolsInternalEvent(event)) {
+      return null;
+    }
+
+    // Drop expected/poll 5xx noise from httpClientIntegration. It flags every
+    // 5xx fetch/XHR as an unhandled "HTTP Client Error"; the NextAuth session
+    // poll (/api/auth/session, every 5 min + on window focus) dominates this and
+    // creates huge false-positive issues. Only the known poll/health endpoints
+    // are dropped — genuine 5xx on real API/tRPC endpoints are kept, and a real
+    // session outage is still observable server-side via request tracing/APM
+    // spans and application logs.
+    if (isNoisyHttpClientPollEvent(event)) {
+      return null;
+    }
+
+    // Drop known-benign client-side noise: browser/transport failures (offline,
+    // flaky network, CORS, proxy/infra HTML error pages), transient
+    // framework/vendor poll logs (NextAuth CLIENT_FETCH_ERROR, PostHog notices),
+    // and expected browser artifacts (clipboard permission denials, intentional
+    // request cancellations). Each signature is narrow and cannot represent a
+    // real Langfuse app bug; real errors that merely quote a phrase still flow
+    // to Sentry. See isDenylistedNoiseEvent for the per-rule rationale.
+    if (isDenylistedNoiseEvent(event)) {
+      return null;
+    }
+
+    // Drop errors thrown wholly inside PostHog's session-replay recorder
+    // script (rrweb DOM serialization failing on exotic page content). No app
+    // frame is ever present in these stacks; anything touching our code is
+    // kept. See isPosthogRecorderInternalEvent for the rationale.
+    if (isPosthogRecorderInternalEvent(event)) {
+      return null;
+    }
+
+    // Stale-deploy / truncated chunk parse errors: collapse into ONE issue
+    // instead of one per content-hashed chunk filename. Deliberately grouped,
+    // NOT dropped — a deploy that ships a genuinely unparsable chunk still
+    // surfaces as a spike on the single grouped issue. See
+    // isStaleChunkParseErrorEvent for the rationale.
+    if (isStaleChunkParseErrorEvent(event)) {
+      event.fingerprint = [STALE_CHUNK_PARSE_FINGERPRINT];
+    }
+
+    return event;
+  },
+
+  // Replay may only be enabled for the client-side
+  integrations: [
+    Sentry.replayIntegration({
+      maskAllText: true,
+      maskAllInputs: true,
+      blockAllMedia: true,
+    }),
+    Sentry.browserTracingIntegration(),
+    Sentry.httpClientIntegration(),
+    // Sentry.debugIntegration(),
+    Sentry.captureConsoleIntegration({
+      levels: ["error"],
+    }),
+    Sentry.browserProfilingIntegration(),
+  ],
+
+  // Set tracesSampleRate to 1.0 to capture 100%
+  // of transactions for performance monitoring.
+  // We recommend adjusting this value in production
+  tracesSampleRate: process.env.NEXT_PUBLIC_LANGFUSE_TRACING_SAMPLE_RATE
+    ? Number(process.env.NEXT_PUBLIC_LANGFUSE_TRACING_SAMPLE_RATE)
+    : 0,
+
+  // Capture Replay for 100% of all sessions,
+  // plus for 100% of sessions with an error
+  replaysSessionSampleRate: process.env.NEXT_PUBLIC_LANGFUSE_TRACING_SAMPLE_RATE
+    ? Number(process.env.NEXT_PUBLIC_LANGFUSE_TRACING_SAMPLE_RATE)
+    : 0,
+  replaysOnErrorSampleRate: 1.0,
+  debug: false,
+
+  // Set profilesSampleRate to 1.0 to profile every transaction.
+  // Since profilesSampleRate is relative to tracesSampleRate,
+  // the final profiling rate can be computed as tracesSampleRate * profilesSampleRate
+  // For example, a tracesSampleRate of 0.5 and profilesSampleRate of 0.5 would
+  // result in 25% of transactions being profiled (0.5*0.5=0.25)
+  profilesSampleRate: 0.5,
+
+  // Filter out browser extension errors
+  // see: https://docs.sentry.io/platforms/javascript/configuration/filtering/#using-allowurls-and-denyurls
+  // Stackless console captures of the same origins (Chrome `import()` of an
+  // extension module) are dropped by isDenylistedNoiseEvent instead — denyUrls
+  // only matches stack-frame filenames.
+  denyUrls: [
+    // Chrome extensions
+    /chrome-extension:\/\//i,
+    // Firefox extensions
+    /moz-extension:\/\//i,
+    // Safari extensions
+    /safari-extension:\/\//i,
+    // Edge extensions
+    /ms-browser-extension:\/\//i,
+    // Generic browser extension patterns
+    /app:\/\/\/scripts\//i,
+  ],
+
+  // Note: if you want to override the automatic release value, do not set a
+  // `release` value here - use the environment variable `SENTRY_RELEASE`, so
+  // that it will also get attached to your source maps
+});
+
+// Export router transition start hook for navigation instrumentation
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

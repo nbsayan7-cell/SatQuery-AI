@@ -1,0 +1,1 @@
+- Classify Cloudflared and Tailscale process-management routes as local-only and spawn-capable while preserving remote access to read-only tunnel status endpoints.

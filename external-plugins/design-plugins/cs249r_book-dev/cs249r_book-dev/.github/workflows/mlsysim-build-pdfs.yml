@@ -1,0 +1,197 @@
+name: '🧮 MLSYSIM · 🔨 Build PDFs'
+
+# =============================================================================
+# MLSYSIM — Build Research Paper + Tutorial Slide PDFs
+# =============================================================================
+#
+# Builds two artifacts that get injected into the docs site at deploy time:
+#   - MLSYSIM-Paper  : the research paper PDF (mlsysim/paper/paper.pdf)
+#   - MLSYSIM-Slides : ISCA tutorial slide PDFs (tutorial_module1.pdf - _module4.pdf)
+#
+# Neither PDF is committed to the repo; both are downloaded from artifacts
+# and copied into the Quarto site root during the publish/preview workflows.
+#
+# Flow:
+#   1. BUILD_PAPER   — Install LaTeX deps + build paper PDF, upload artifact
+#   2. BUILD_SLIDES  — Install xelatex + fonts, build tutorial decks, upload
+#   3. SUMMARY       — Build status report
+#
+# Triggers:
+#   - workflow_dispatch: manual
+#   - workflow_call: called by preview and publish workflows
+#
+# Deploys to: N/A (artifacts only)
+#
+# Related:
+#   - mlsysim-preview-dev.yml  — Downloads artifacts for dev deploy
+#   - mlsysim-publish-live.yml — Downloads artifacts for live deploy
+#   - mlsysim-update-pdfs.yml  — Rebuilds + deploys PDFs without site
+#
+# =============================================================================
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to checkout (branch, tag, or SHA)"
+        type: string
+        required: false
+        default: ''
+    outputs:
+      pdf_built:
+        description: "Whether the paper PDF was built successfully"
+        value: ${{ jobs.build-paper.result == 'success' }}
+      slides_built:
+        description: "Whether the tutorial slide PDFs were built successfully"
+        value: ${{ jobs.build-slides.result == 'success' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-paper:
+    name: '📄 Build Research Paper PDF'
+    runs-on: ubuntu-latest
+    # 10 min was too tight: apt-install of texlive-latex-extra +
+    # texlive-science + friends regularly takes 9–10 min on ubuntu-latest,
+    # leaving the actual `make` step no headroom. 2026-05-13 mlsysim-publish
+    # run 25815971246 cancelled here exactly at the 10-min boundary while
+    # apt was still installing. 30 min mirrors the headroom logic used on
+    # build-slides below (40 min for the larger texlive-fonts-extra stack).
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: 📦 Install LaTeX dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            texlive-latex-extra \
+            texlive-fonts-recommended \
+            texlive-science \
+            poppler-utils \
+            librsvg2-bin \
+            > /dev/null
+
+      - name: 📄 Build Paper PDF
+        working-directory: mlsysim/paper
+        run: make
+
+      - name: 🔍 Validate PDF
+        working-directory: mlsysim/paper
+        run: |
+          if [ ! -f paper.pdf ]; then
+            echo "❌ CRITICAL: paper.pdf was not generated"
+            exit 1
+          fi
+          PAGES=$(pdfinfo paper.pdf 2>/dev/null | grep Pages | awk '{print $2}' || echo "?")
+          SIZE=$(du -h paper.pdf | awk '{print $1}')
+          echo "✅ paper.pdf built successfully (${PAGES} pages, ${SIZE})"
+
+      - name: 📤 Upload PDF Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: MLSYSIM-Paper
+          path: mlsysim/paper/paper.pdf
+          retention-days: 90
+
+  build-slides:
+    name: '📊 Build Tutorial Slide PDFs'
+    runs-on: ubuntu-latest
+    # 20-min timeout was too tight: texlive-fonts-extra alone is 629 MB
+    # and the full apt install + tlmgr + xelatex compile of two decks
+    # eats most of it. The 2026-05-12 retries timed out mid-apt-install
+    # before the build could even start. 40 gives apt + tlmgr ~25 min of
+    # headroom and still bounds runaway jobs.
+    timeout-minutes: 40
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      # Minimal pdflatex stack for the tutorial decks. Switched away
+      # from xelatex on 2026-05-13 after the Helvetica Neue → texgyreheros
+      # → Latin Modern font lookup tour. pdflatex with helvet + courier
+      # gives Helvetica metrics via bundled NimbusSans (always present
+      # in texlive-fonts-recommended) — no fontspec, no OS-font lookups,
+      # no JetBrains-Mono-fc-cache dance.
+      - name: 🔧 Install TeX Live (pdflatex)
+        run: |
+          sudo apt-get install -y --no-install-recommends \
+            texlive-latex-extra \
+            texlive-latex-recommended \
+            texlive-fonts-recommended \
+            lmodern
+
+      - name: 🔧 Install Inkscape + Poppler
+        run: |
+          sudo apt-get install -y --no-install-recommends inkscape poppler-utils
+
+      - name: 🔧 Install Beamer Metropolis Theme
+        run: |
+          tlmgr install beamertheme-metropolis pgfopts || true
+
+      - name: 📊 Build Tutorial Decks
+        working-directory: mlsysim/tutorial
+        run: make
+
+      - name: 🔍 Validate Slide PDFs
+        working-directory: mlsysim/tutorial
+        run: |
+          missing=0
+          for f in _build/tutorial_module*.pdf; do
+            if [ ! -f "$f" ]; then
+              echo "❌ Missing: $f"
+              missing=$((missing + 1))
+              continue
+            fi
+            PAGES=$(pdfinfo "$f" 2>/dev/null | grep Pages | awk '{print $2}' || echo "?")
+            SIZE=$(du -h "$f" | awk '{print $1}')
+            echo "✅ $f (${PAGES} pages, ${SIZE})"
+          done
+          if [ "$missing" -gt 0 ]; then
+            exit 1
+          fi
+
+      - name: 📤 Upload Slides Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: MLSYSIM-Slides
+          path: |
+            mlsysim/tutorial/_build/tutorial_module1.pdf
+            mlsysim/tutorial/_build/tutorial_module2.pdf
+            mlsysim/tutorial/_build/tutorial_module3.pdf
+            mlsysim/tutorial/_build/tutorial_module4.pdf
+          retention-days: 90
+
+  summary:
+    name: '📊 Build Summary'
+    runs-on: ubuntu-latest
+    needs: [build-paper, build-slides]
+    if: always()
+
+    steps:
+      - name: 📊 Generate Summary
+        run: |
+          echo "## 🧮 MLSYSIM PDF Builds" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Artifact | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 📄 Research Paper (MLSYSIM-Paper) | ${{ needs.build-paper.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📊 Tutorial Slides (MLSYSIM-Slides) | ${{ needs.build-slides.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Usage" >> $GITHUB_STEP_SUMMARY
+          echo "Artifacts are downloaded and injected during site deployment:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Live**: MLSYSIM Publish (Live)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dev**: MLSYSIM Preview (Dev)" >> $GITHUB_STEP_SUMMARY

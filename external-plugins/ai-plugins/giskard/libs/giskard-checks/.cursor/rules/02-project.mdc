@@ -1,0 +1,33 @@
+---
+description: High level overview of the project. Always read this before starting a new task.
+alwaysApply: false
+---
+# Project Rules and Conventions
+
+## Project Overview
+
+This is the `giskard-checks` library - lightweight primitives to define and run checks against model interactions.
+
+## Key Files
+
+- Monorepo root `Makefile` — development workflow (run `make help` from repository root)
+- `pyproject.toml` — build configuration, dependencies, and tooling
+- `README.md` — end-user documentation and quickstart
+
+## Development Workflow
+
+Always use Makefile commands for development tasks. See [03-development.mdc](03-development.mdc) for the complete workflow.
+
+## Code Quality
+
+- Python >= 3.12 required
+- Use Pydantic v2 models for type safety
+- Async-friendly: checks can be sync or async
+- Follow the existing patterns in the codebase
+- Use absolute imports within the `giskard.checks` package
+
+## Testing
+
+- From the repository root: `make test-unit PACKAGE=giskard-checks` for unit tests (or `make test` for all tests including functional)
+- Tests are in `tests/` mirroring the package structure
+- Static checks aligned with CI: `make check` (after `make install install-tools` if needed)

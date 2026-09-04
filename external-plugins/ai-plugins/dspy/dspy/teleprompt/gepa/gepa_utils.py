@@ -1,0 +1,463 @@
+import logging
+import random
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+from typing import Any, Callable, Protocol, TypedDict
+
+from gepa import EvaluationBatch, GEPAAdapter
+from gepa.core.adapter import ProposalFn
+from gepa.strategies.instruction_proposal import InstructionProposalSignature
+
+import dspy
+from dspy.adapters.chat_adapter import ChatAdapter
+from dspy.adapters.types import History
+from dspy.adapters.types.base_type import Type
+from dspy.evaluate import Evaluate
+from dspy.primitives import Example, Prediction
+from dspy.primitives.code_interpreter import CodeInterpreterError
+from dspy.teleprompt.bootstrap_trace import FailedPrediction, TraceData
+from dspy.teleprompt.gepa.gepa_flex_utils import (
+    code_reflective_records,
+    enumerate_flex_submodules,
+    evaluate_with_trace,
+    flex_task_context,
+    propose_code,
+    rebind_flex_code,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class LoggerAdapter:
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+
+    def log(self, x: str):
+        self.logger.info(x)
+
+
+DSPyTrace = list[tuple[Any, dict[str, Any], Prediction]]
+
+ReflectiveExample = TypedDict(
+    "ReflectiveExample",
+    {
+        "Inputs": dict[str, Any],
+        "Generated Outputs": dict[str, Any] | str,
+        "Feedback": str,
+    },
+)
+
+ReflectiveExample.__doc__ = """
+Structure of individual examples in the reflective dataset.
+
+Each example contains the predictor inputs, generated outputs, and feedback from evaluation.
+"""
+
+
+class ScoreWithFeedback(Prediction):
+    score: float
+    feedback: str
+    objective_scores: dict[str, float] | None
+
+
+def _extract_score_and_objective_scores(score: Any) -> tuple[float | None, dict[str, float]]:
+    if isinstance(score, Prediction):
+        return score.score, dict(score.get("objective_scores") or {})
+    return score, {}
+
+
+class PredictorFeedbackFn(Protocol):
+    def __call__(
+        self,
+        predictor_output: dict[str, Any],
+        predictor_inputs: dict[str, Any],
+        module_inputs: Example,
+        module_outputs: Prediction,
+        captured_trace: DSPyTrace,
+    ) -> ScoreWithFeedback:
+        """
+        This function is used to provide feedback to a specific predictor.
+        The function is called with the following arguments:
+        - predictor_output: The output of the predictor.
+        - predictor_inputs: The inputs to the predictor.
+        - module_inputs: The inputs to the whole program --- `Example`.
+        - module_outputs: The outputs of the whole program --- `Prediction`.
+        - captured_trace: The trace of the module's execution.
+        # Shape of trace is: [predictor_invocation_idx -> Tuple[Predictor, PredictorInputs, Prediction]]
+        # Each trace is a tuple of (Predictor, PredictorInputs, Prediction)
+
+        The function should return a `ScoreWithFeedback` object.
+        The feedback is a string that is used to guide the evolution of the predictor.
+        """
+        ...
+
+
+class DspyAdapter(GEPAAdapter[Example, TraceData, Prediction]):
+    def __init__(
+        self,
+        student_module,
+        metric_fn: Callable,
+        feedback_map: dict[str, Callable],
+        failure_score=0.0,
+        num_threads: int | None = None,
+        add_format_failure_as_feedback: bool = False,
+        rng: random.Random | None = None,
+        reflection_lm=None,
+        custom_instruction_proposer: "ProposalFn | None" = None,
+        warn_on_score_mismatch: bool = True,
+        reflection_minibatch_size: int | None = None,
+    ):
+        self.student = student_module
+        self.metric_fn = metric_fn
+        self.feedback_map = feedback_map
+        self.failure_score = failure_score
+        self.num_threads = num_threads
+        self.add_format_failure_as_feedback = add_format_failure_as_feedback
+        self.rng = rng or random.Random(0)
+        self.reflection_lm = reflection_lm
+        self.custom_instruction_proposer = custom_instruction_proposer
+        self.warn_on_score_mismatch = warn_on_score_mismatch
+        self.reflection_minibatch_size = reflection_minibatch_size
+        self._warned_custom_proposer_skips_code = False
+
+        # dspy.Flex code components are keyed by the submodule's parameter path.
+        self._flex_paths = set(enumerate_flex_submodules(student_module))
+        # Task description + available context shown to the dspy.Flex code proposer, per submodule.
+        self._flex_task_descriptions, self._flex_context_blurbs = flex_task_context(student_module)
+
+    def propose_new_texts(
+        self,
+        candidate: dict[str, str],
+        reflective_dataset: dict[str, list[dict[str, Any]]],
+        components_to_update: list[str],
+    ) -> dict[str, str]:
+        reflection_lm = self.reflection_lm or dspy.settings.lm
+
+        # dspy.Flex code components are rewritten by the code proposer.
+        results: dict[str, str] = {}
+        code_keys = [c for c in components_to_update if c in self._flex_paths]
+        if code_keys:
+            results.update(
+                propose_code(
+                    code_keys, candidate, reflective_dataset,
+                    self._flex_task_descriptions, self._flex_context_blurbs, reflection_lm,
+                )
+            )
+        components_to_update = [c for c in components_to_update if c not in self._flex_paths]
+        if not components_to_update:
+            return results
+
+        # A custom proposer overrides the default *instruction* proposer only.
+        if self.custom_instruction_proposer:
+            if code_keys and not self._warned_custom_proposer_skips_code:
+                logger.warning(
+                    "A custom instruction_proposer is set, but %d dspy.Flex code component(s) are "
+                    "being optimized. The custom proposer handles instruction components only; the "
+                    "built-in code proposer rewrites the flex source.",
+                    len(code_keys),
+                )
+                self._warned_custom_proposer_skips_code = True
+            with dspy.context(lm=reflection_lm):
+                results.update(
+                    self.custom_instruction_proposer(
+                        candidate=candidate,
+                        reflective_dataset=reflective_dataset,
+                        components_to_update=components_to_update,
+                    )
+                )
+                return results
+
+        with dspy.context(lm=reflection_lm):
+            for name in components_to_update:
+                base_instruction = candidate[name]
+                dataset_with_feedback = reflective_dataset[name]
+                results[name] = InstructionProposalSignature.run(
+                    lm=(lambda x: self.stripped_lm_call(x)[0]),
+                    input_dict={
+                        "current_instruction_doc": base_instruction,
+                        "dataset_with_feedback": dataset_with_feedback,
+                    },
+                )["new_instruction"]
+
+        return results
+
+    def build_program(self, candidate: dict[str, str]):
+        new_prog = self.student.deepcopy()
+
+        # Rebind code for any dspy.Flex submodules in the candidate (see gepa_flex_utils). A
+        # candidate that doesn't parse raises here (evaluate() catches it and scores the batch as
+        # a failure); runtime breakage surfaces per example when the code first runs at forward.
+        rebind_flex_code(new_prog, candidate)
+
+        # Apply instruction updates. Code components are keyed by a Flex's parameter path, which
+        # never names a predictor, and predictors inside a Flex were excluded from the candidate,
+        # so both are left untouched.
+        for name, pred in new_prog.named_predictors():
+            if name in candidate:
+                pred.signature = pred.signature.with_instructions(candidate[name])
+
+        return new_prog
+
+    def evaluate(self, batch, candidate, capture_traces=False, num_threads=None):
+        num_threads = self.num_threads if num_threads is None else num_threads
+        try:
+            program = self.build_program(candidate)
+        except (SyntaxError, CodeInterpreterError) as e:
+            # A code candidate that fails to bind scores as a failure rather than
+            # crashing the run. Only source-level failures are caught. Anything else
+            # (e.g., an LM provider or rate-limit error) is not the candidate's fault and must
+            # propagate.
+            logger.warning("Candidate failed to build (%s); scoring the batch as failures.", e)
+            return self._make_evaluation_batch(
+                outputs=[None] * len(batch),
+                raw_scores=[None] * len(batch),
+                trajectories=[] if capture_traces else None,
+            )
+        callback_metadata = (
+            {"metric_key": "eval_full"}
+            if self.reflection_minibatch_size is None or len(batch) > self.reflection_minibatch_size
+            else {"disable_logging": True}
+        )
+
+        # When a dspy.Flex submodule is present, capture the execution trace at scoring time so a
+        # metric that declares a `program_trace` parameter can score against it (e.g. an LM-call
+        # penalty).
+        if self._flex_paths:
+            return evaluate_with_trace(
+                program,
+                batch,
+                metric_fn=self.metric_fn,
+                num_threads=num_threads,
+                failure_score=self.failure_score,
+                callback_metadata=callback_metadata,
+                capture_traces=capture_traces,
+            )
+
+        if capture_traces:
+            # bootstrap_trace_data-like flow with trace capture
+            from dspy.teleprompt import bootstrap_trace as bootstrap_trace_module
+
+            trajs = bootstrap_trace_module.bootstrap_trace_data(
+                program=program,
+                dataset=batch,
+                metric=self.metric_fn,
+                num_threads=num_threads,
+                raise_on_error=False,
+                capture_failed_parses=True,
+                failure_score=self.failure_score,
+                format_failure_score=self.failure_score,
+                callback_metadata=callback_metadata,
+            )
+            # bootstrap_trace_data drops examples whose program raised, but gepa indexes results by
+            # batch position, so keep outputs and scores batch-sized (dropped -> failure_score).
+            outputs: list[Any] = [None] * len(batch)
+            raw_scores: list[Any] = [None] * len(batch)
+            for t in trajs:
+                outputs[t["example_ind"]] = t["prediction"]
+                raw_scores[t["example_ind"]] = t.get("score")
+            return self._make_evaluation_batch(outputs=outputs, raw_scores=raw_scores, trajectories=trajs)
+        else:
+            evaluator = Evaluate(
+                devset=batch,
+                metric=self.metric_fn,
+                num_threads=num_threads,
+                return_all_scores=True,
+                failure_score=self.failure_score,
+                provide_traceback=True,
+                max_errors=len(batch) * 100,
+                callback_metadata=callback_metadata,
+            )
+            res = evaluator(program)
+            return self._make_evaluation_batch(
+                outputs=[result[1] for result in res.results],
+                raw_scores=[result[2] for result in res.results],
+                trajectories=None,
+            )
+
+    def _make_evaluation_batch(self, outputs, raw_scores, trajectories) -> EvaluationBatch:
+        scores_and_objectives = [_extract_score_and_objective_scores(score) for score in raw_scores]
+        scores = [self.failure_score if score is None else score for score, _ in scores_and_objectives]
+        objective_scores = [objectives for _, objectives in scores_and_objectives]
+        return EvaluationBatch(
+            outputs=outputs,
+            scores=scores,
+            trajectories=trajectories,
+            objective_scores=objective_scores if any(objective_scores) else None,
+        )
+
+    def batch_evaluate(self, items, *, capture_traces=True):
+        total_threads = self.num_threads or dspy.settings.num_threads
+        candidate_workers = min(len(items), total_threads) or 1
+        threads_per_candidate, extra_threads = divmod(total_threads, candidate_workers)
+
+        def evaluate(item):
+            context, (candidate, batch), num_threads = item
+            return context.run(
+                self.evaluate,
+                batch,
+                candidate,
+                capture_traces=capture_traces,
+                num_threads=num_threads,
+            )
+
+        work = [
+            (copy_context(), item, threads_per_candidate + (index < extra_threads))
+            for index, item in enumerate(items)
+        ]
+        with ThreadPoolExecutor(max_workers=candidate_workers) as executor:
+            return list(executor.map(evaluate, work))
+
+    def get_adapter_state(self) -> dict[str, Any]:
+        return {"rng_state": self.rng.getstate()}
+
+    def set_adapter_state(self, state: dict[str, Any]) -> None:
+        if "rng_state" in state:
+            self.rng.setstate(state["rng_state"])
+
+    def make_reflective_dataset(
+        self, candidate, eval_batch, components_to_update
+    ) -> dict[str, list[ReflectiveExample]]:
+        program = self.build_program(candidate)
+
+        ret_d: dict[str, list[ReflectiveExample]] = {}
+
+        for pred_name in components_to_update:
+            # Code components (dspy.Flex submodules) reflect on whole-program I/O, not per-predictor
+            # traces.
+            if pred_name in self._flex_paths:
+                recs = code_reflective_records(eval_batch)
+                if recs:
+                    ret_d[pred_name] = recs
+                continue
+
+            # Find the predictor object
+            module = None
+            for name, m in program.named_predictors():
+                if name == pred_name:
+                    module = m
+                    break
+            assert module is not None, f"Predictor not found: {pred_name}"
+
+            # Create reflective examples from traces
+            items: list[ReflectiveExample] = []
+            for data in eval_batch.trajectories or []:
+                trace = data["trace"]
+                example = data["example"]
+                prediction = data["prediction"]
+                module_score = data["score"]
+                if hasattr(module_score, "score"):
+                    module_score = module_score["score"]
+
+                trace_instances = [t for t in trace if t[0].signature.equals(module.signature)]
+                if not self.add_format_failure_as_feedback:
+                    trace_instances = [t for t in trace_instances if not isinstance(t[2], FailedPrediction)]
+                if len(trace_instances) == 0:
+                    continue
+
+                selected = None
+                for t in trace_instances:
+                    if isinstance(t[2], FailedPrediction):
+                        selected = t
+                        break
+
+                if selected is None:
+                    if isinstance(prediction, FailedPrediction):
+                        continue
+                    selected = self.rng.choice(trace_instances)
+
+                inputs = selected[1]
+                outputs = selected[2]
+
+                new_inputs = {}
+                new_outputs = {}
+
+                contains_history = False
+                history_key_name = None
+                for input_key, input_val in inputs.items():
+                    if isinstance(input_val, History):
+                        contains_history = True
+                        assert history_key_name is None
+                        history_key_name = input_key
+
+                if contains_history:
+                    s = "```json\n"
+                    for i, message in enumerate(inputs[history_key_name].messages):
+                        s += f"  {i}: {message}\n"
+                    s += "```"
+                    new_inputs["Context"] = s
+
+                for input_key, input_val in inputs.items():
+                    if contains_history and input_key == history_key_name:
+                        continue
+
+                    if isinstance(input_val, Type) and self.custom_instruction_proposer is not None:
+                        # Keep original object - will be properly formatted when sent to reflection LM
+                        new_inputs[input_key] = input_val
+                    else:
+                        new_inputs[input_key] = str(input_val)
+
+                if isinstance(outputs, FailedPrediction):
+                    s = "Couldn't parse the output as per the expected output format. The model's raw response was:\n"
+                    s += "```\n"
+                    s += outputs.completion_text + "\n"
+                    s += "```\n\n"
+                    new_outputs = s
+                else:
+                    for output_key, output_val in outputs.items():
+                        new_outputs[output_key] = str(output_val)
+
+                d = {"Inputs": new_inputs, "Generated Outputs": new_outputs}
+                if isinstance(outputs, FailedPrediction):
+                    adapter = ChatAdapter()
+                    structure_instruction = ""
+                    for dd in adapter.format(module.signature, [], {}):
+                        structure_instruction += dd["role"] + ": " + dd["content"] + "\n"
+                    d["Feedback"] = "Your output failed to parse. Follow this structure:\n" + structure_instruction
+                    # d['score'] = self.failure_score
+                else:
+                    feedback_fn = self.feedback_map[pred_name]
+                    fb = feedback_fn(
+                        predictor_output=outputs,
+                        predictor_inputs=inputs,
+                        module_inputs=example,
+                        module_outputs=prediction,
+                        captured_trace=trace,
+                    )
+                    d["Feedback"] = fb["feedback"]
+                    if fb["score"] != module_score:
+                        if self.warn_on_score_mismatch:
+                            logger.warning(
+                                "The score returned by the metric with pred_name is different from the overall metric score. This can indicate 2 things: Either the metric is non-deterministic (e.g., LLM-as-judge, Semantic score, etc.) or the metric returned a score specific to pred_name that differs from the module level score. Currently, GEPA does not support predictor level scoring (support coming soon), and only requires a feedback text to be provided, which can be specific to the predictor or program level. GEPA will ignore the differing score returned, and instead use module level score. You can safely ignore this warning if using a semantic metric, however, if this mismatch is caused due to predictor scoring, please return module-level scores. To disable this warning, set warn_on_score_mismatch=False."
+                            )
+                            self.warn_on_score_mismatch = False
+                        fb["score"] = module_score
+
+                items.append(d)
+
+            if len(items) == 0:
+                logger.warning(f"  No valid reflective examples found for {pred_name}")
+                continue
+
+            ret_d[pred_name] = items
+
+        if len(ret_d) == 0:
+            raise Exception("No valid predictions found for any module.")
+
+        return ret_d
+
+    # Always return strings from the LM outputs
+    # Even when it returns a dict with e.g., "text" and "reasoning" fields
+    def stripped_lm_call(self, x: str) -> list[str]:
+        raw_outputs = self.reflection_lm(x)
+        outputs = []
+        for raw_output in raw_outputs:
+            if type(raw_output) == str:
+                outputs.append(raw_output)
+            elif type(raw_output) == dict:
+                if "text" not in raw_output:
+                    raise KeyError("Missing 'text' field in the output from the base LM!")
+                outputs.append(raw_output["text"])
+            else:
+                raise TypeError("Unexpected output type from the base LM! Expected str or dict")
+
+        return outputs

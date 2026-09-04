@@ -1,0 +1,1 @@
+- **fix(providers):** Keep overnight peak-hour protection active after midnight according to the window's configured start day ([#11718](https://github.com/diegosouzapw/OmniRoute/pull/11718)) — thanks @pacocartones

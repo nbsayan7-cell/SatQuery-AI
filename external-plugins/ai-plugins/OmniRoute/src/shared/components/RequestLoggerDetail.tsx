@@ -1,0 +1,1108 @@
+"use client";
+
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useLocale, useTranslations } from "next-intl";
+import { JsonView } from "@/shared/components/jsonView";
+import {
+  PROVIDER_COLORS,
+  getHttpStatusStyle as getStatusStyle,
+  getProtocolColor,
+} from "@/shared/constants/colors";
+import { formatDuration, formatApiKeyLabel, maskAccount } from "@/shared/utils/formatting";
+import { formatErrorForDisplay } from "@/shared/utils/formatting";
+import { useTheme } from "@/shared/hooks/useTheme";
+import {
+  useTimestampTitles,
+  timestampMarkerCustomizeNode,
+} from "@/shared/hooks/useTimestampTitles";
+import { JsonTreeExpandControls } from "@/shared/components/JsonTreeExpandControls";
+import { useJsonTreeExpandLevel } from "@/store/jsonTreeExpandStore";
+import {
+  PayloadSection,
+  ConversationContextSection,
+} from "@/shared/components/RequestLoggerDetail.sections";
+
+// ─── Copy-all composition ────────────────────────────────────────────────────
+// Compose every visible payload section + stream chunk into a single block so
+// users can copy the whole request/response transcript with one click instead
+// of copying each section individually. Pure function, exported for tests.
+type CopyAllSection = { title: string; json: string };
+type CopyAllInput = {
+  sections: CopyAllSection[];
+  streamChunks?: Record<string, string | string[]>;
+  legacyResponse?: string | null;
+  legacyRequest?: string | null;
+  legacyResponseTitle?: string;
+  legacyRequestTitle?: string;
+};
+
+export function buildCopyAllText({
+  sections,
+  streamChunks,
+  legacyResponse,
+  legacyRequest,
+  legacyResponseTitle = "Response",
+  legacyRequestTitle = "Request",
+}: CopyAllInput): string {
+  const parts: string[] = [];
+  const streamNames: Array<[string, string | string[] | undefined]> = [
+    ["provider", streamChunks?.provider],
+    ["client", streamChunks?.client],
+    ["openai", streamChunks?.openai],
+  ];
+
+  for (const [name, value] of streamNames) {
+    if (value == null) continue;
+    const body = Array.isArray(value) ? value.join("") : String(value);
+    if (!body) continue;
+    parts.push(`### ${name.toUpperCase()} STREAM\n${body}`);
+  }
+
+  for (const section of sections) {
+    parts.push(`### ${section.title}\n${section.json}`);
+  }
+
+  if (sections.length === 0 && legacyResponse) {
+    parts.push(`### ${legacyResponseTitle}\n${legacyResponse}`);
+  }
+  if (sections.length === 0 && legacyRequest) {
+    parts.push(`### ${legacyRequestTitle}\n${legacyRequest}`);
+  }
+
+  return parts.join("\n\n---\n\n");
+}
+
+// ─── Stream section + Detail Modal ───────────────────────────────────────────────────────────
+
+// Raw stream chunks are captured at the network level (see streamChunks
+// capture) with a `[HH:MM:SS.mmm] ` prefix inserted per chunk boundary, which
+// can land mid-token inside an SSE event's JSON payload once chunks are
+// joined. Strip those markers first so a `data:` line isn't interrupted.
+const STREAM_TIMESTAMP_PREFIX = /\[\d{2}:\d{2}:\d{2}\.\d{3}\] /g;
+
+type StreamSegment =
+  { type: "text"; value: string } | { type: "json"; value: unknown; raw: string };
+
+// Splits a raw joined SSE capture into renderable segments: each `data:`
+// line that parses as JSON becomes its own segment (rendered as a
+// collapsible tree), everything else (comments, keep-alives, [DONE],
+// non-JSON payloads) stays as plain text, byte-identical to the raw capture.
+function parseStreamIntoSegments(joined: string): StreamSegment[] {
+  const text = joined.replace(STREAM_TIMESTAMP_PREFIX, "");
+  const events = text.split(/(?<=\n\n)/); // keep event boundaries, preserve exact text
+  const segments: StreamSegment[] = [];
+  for (const event of events) {
+    if (!event) continue;
+    const dataLines = event
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim());
+    const payload = dataLines.join("");
+    if (dataLines.length === 0 || !payload || payload === "[DONE]") {
+      segments.push({ type: "text", value: event });
+      continue;
+    }
+    try {
+      segments.push({ type: "json", value: JSON.parse(payload), raw: event });
+    } catch {
+      segments.push({ type: "text", value: event });
+    }
+  }
+  return segments;
+}
+
+function StreamSection({ title, sectionId, json, onCopy }) {
+  const t = useTranslations("requestLogger.detail");
+  const [copied, setCopied] = useState(false);
+  const [open, setOpen] = useState(true);
+  const [autoscroll, setAutoscroll] = useState(() => {
+    try {
+      const v = localStorage.getItem("pref:stream:autoscroll");
+      return v == null ? true : v === "1";
+    } catch {
+      return true;
+    }
+  });
+  const ref = useRef(null);
+  const { isDark } = useTheme();
+  const resolvedSectionId = sectionId || title;
+  const expandLevel = useJsonTreeExpandLevel(resolvedSectionId);
+  const segments = useMemo(() => parseStreamIntoSegments(json), [json]);
+
+  const handleCopy = async () => {
+    const success = await onCopy();
+    if (success !== false) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  useEffect(() => {
+    if (!autoscroll || !open) return;
+    const el = ref.current;
+    if (!el) return;
+    // scroll on next animation frame to avoid layout thrash
+    requestAnimationFrame(() => {
+      try {
+        el.scrollTop = el.scrollHeight;
+      } catch {}
+    });
+  }, [json, autoscroll, open]);
+
+  const toggleAutoscroll = () => {
+    const next = !autoscroll;
+    setAutoscroll(next);
+    try {
+      localStorage.setItem("pref:stream:autoscroll", next ? "1" : "0");
+    } catch {}
+  };
+
+  useTimestampTitles(ref, open);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-3">
+          <h3 className="text-[11px] text-text-muted uppercase tracking-wider font-bold">
+            {title}
+          </h3>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="p-1 rounded hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
+            aria-label={open ? t("collapse", { title }) : t("expand", { title })}
+          >
+            <span className="material-symbols-outlined text-[16px]">
+              {open ? "expand_less" : "expand_more"}
+            </span>
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleAutoscroll}
+            title={autoscroll ? t("autoscrollOn") : t("autoscrollOff")}
+            className={`p-1 rounded hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors ${autoscroll ? "text-primary" : ""}`}
+            aria-pressed={autoscroll}
+          >
+            <span className="material-symbols-outlined text-[18px]">vertical_align_bottom</span>
+          </button>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-text-muted hover:text-text-primary transition-colors"
+            aria-label={t("copyTitle", { title })}
+          >
+            <span className="material-symbols-outlined text-[14px]">
+              {copied ? "check" : "content_copy"}
+            </span>
+            {copied ? t("copied") : t("copy")}
+          </button>
+          {segments.some((s) => s.type === "json") && (
+            <JsonTreeExpandControls sectionId={resolvedSectionId} />
+          )}
+        </div>
+      </div>
+      {open && (
+        <div
+          ref={ref}
+          className="p-4 rounded-xl bg-black/5 dark:bg-black/30 border border-border overflow-x-auto text-xs font-mono text-text-main max-h-150 overflow-y-auto leading-relaxed"
+        >
+          {segments.map((segment, i) =>
+            segment.type === "json" ? (
+              <div key={i} className="my-1">
+                <JsonView
+                  src={segment.value}
+                  dark={isDark}
+                  collapsed={expandLevel}
+                  customizeNode={timestampMarkerCustomizeNode}
+                  displaySize
+                />
+              </div>
+            ) : (
+              <span key={i} className="whitespace-pre-wrap break-words">
+                {segment.value}
+              </span>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Detail Modal ───────────────────────────────────────────────────────────
+
+type StreamChunks = Record<string, string | string[]>;
+
+function getCodexAccountRotation(detail) {
+  const sources = [detail?.requestBody, detail?.responseBody];
+
+  for (const source of sources) {
+    const meta = source?._omniroute;
+    const rotation = meta?.codexAccountRotation;
+    if (
+      rotation &&
+      typeof rotation.initialConnectionId === "string" &&
+      typeof rotation.finalConnectionId === "string" &&
+      rotation.initialConnectionId !== rotation.finalConnectionId
+    ) {
+      return rotation;
+    }
+  }
+
+  return null;
+}
+
+function formatConnectionId(value) {
+  if (typeof value !== "string" || value.length === 0) return "-";
+  return value.length > 8 ? `${value.slice(0, 8)}...` : value;
+}
+
+export default function RequestLoggerDetail({
+  log,
+  detail,
+  loading,
+  debugEnabled,
+  emailsVisible = false,
+  onClose,
+  onCopy,
+  onPrevious,
+  onNext,
+  relatedLogs = [],
+  onSelectRelated,
+}) {
+  const t = useTranslations("requestLogger.detail");
+  const locale = useLocale();
+  const modalScrollRef = useRef(null);
+  // Close on Escape key
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    globalThis.addEventListener("keydown", handler);
+    return () => globalThis.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  // The overlay is full-viewport, but the modal panel itself is centered and
+  // narrower than the viewport (max-w-225), leaving backdrop margin on every
+  // side. A wheel event there has no scrollable target under the cursor, so
+  // scrolling only worked once the pointer happened to be over the panel's
+  // own content. Forward wheel scrolling from anywhere in the overlay to the
+  // panel instead, so the backdrop margin scrolls it too.
+  const handleOverlayWheel = (e) => {
+    const panel = modalScrollRef.current;
+    // Let native scrolling handle wheel events that already land inside the
+    // panel -- only forward the ones from the backdrop margin around it.
+    if (!panel || panel.contains(e.target)) return;
+    panel.scrollTop += e.deltaY;
+    e.preventDefault();
+  };
+
+  const statusStyle = getStatusStyle(log.status);
+  const protocolKey = log.sourceFormat || log.provider;
+  const protocol = getProtocolColor(protocolKey, log.provider);
+  const providerColor = PROVIDER_COLORS[log.provider] || {
+    bg: "#374151",
+    text: "#fff",
+    label: (log.provider || "-").toUpperCase(),
+  };
+  const providerLabel = log.providerDisplay || providerColor.label;
+
+  const [unblocking, setUnblocking] = useState(false);
+  const [cleared, setCleared] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
+
+  // #7920 gave this component formatErrorForDisplay for structured error objects, but the
+  // #8213 combo/cooldown checks below went straight to the raw field and call
+  // .toLowerCase() on it — which throws the moment `error` is an object. Same helper,
+  // same normalization, one source of truth.
+  const errorText = formatErrorForDisplay(detail?.error || log.error) ?? "";
+  const isCombo503 =
+    log.status === 503 && errorText.toLowerCase().includes("all targets exhausted");
+  const isModelCooldown = !isCombo503 && errorText.toLowerCase().includes("cooling down");
+
+  const [unblockAllBusy, setUnblockAllBusy] = useState(false);
+
+  const handleUnblockModel = async () => {
+    if (!log.provider || !log.model) return;
+    setUnblocking(true);
+    try {
+      const res = await fetch("/api/resilience/model-cooldowns", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: log.provider, model: log.model }),
+      });
+      if (res.ok) setCleared(true);
+    } catch {
+      /* ignore */
+    } finally {
+      setUnblocking(false);
+    }
+  };
+
+  const handleUnblockAll = async () => {
+    setUnblockAllBusy(true);
+    try {
+      const res = await fetch("/api/resilience/model-cooldowns", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      });
+      if (res.ok) setCleared(true);
+    } catch {
+      /* ignore */
+    } finally {
+      setUnblockAllBusy(false);
+    }
+  };
+
+  const providerStatus = detail?.pipelinePayloads?.providerResponse?.status;
+  const hasStatusDiscrepancy = providerStatus && providerStatus !== log.status;
+
+  const formatDate = (iso) => {
+    if (iso == null) return "\u2014";
+    try {
+      const d = new Date(iso);
+      if (!Number.isFinite(d.getTime())) return "\u2014";
+      return d.toLocaleString(locale, {
+        dateStyle: "short",
+        timeStyle: "medium",
+        hour12: false,
+      });
+    } catch {
+      return "\u2014";
+    }
+  };
+
+  const toPrettyJson = (payload) => {
+    if (payload === null || payload === undefined) return null;
+    try {
+      return JSON.stringify(payload, null, 2);
+    } catch {
+      return String(payload);
+    }
+  };
+
+  const pipelinePayloads = detail?.pipelinePayloads || null;
+  const payloadSections = pipelinePayloads
+    ? [
+        ["clientRawRequest", t("payload.clientRawRequest")],
+        ["clientRequest", t("payload.clientRequest")],
+        ["openaiRequest", t("payload.openaiRequest")],
+        ["providerRequest", t("payload.providerRequest")],
+        ["providerResponse", t("payload.providerResponse")],
+        ["clientResponse", t("payload.clientResponse")],
+        ["error", t("payload.pipelineError")],
+      ]
+        .map(([key, title]) => ({
+          key,
+          title,
+          json: toPrettyJson(pipelinePayloads[key]),
+        }))
+        .filter((section) => section.json)
+    : [];
+  const requestJson = detail?.requestBody ? toPrettyJson(detail.requestBody) : null;
+  const responseJson = detail?.responseBody ? toPrettyJson(detail.responseBody) : null;
+  const streamChunks = (() => {
+    if (!debugEnabled || !detail?.pipelinePayloads?.streamChunks) return null;
+    let chunks: StreamChunks = detail.pipelinePayloads.streamChunks;
+    if (typeof chunks === "string") {
+      try {
+        chunks = JSON.parse(chunks);
+      } catch {
+        return null;
+      }
+    }
+    if (chunks && typeof chunks === "object") return chunks;
+    return null;
+  })();
+
+  // Compose every visible payload section + stream chunk into a single block so
+  // users can copy the whole request/response transcript with one click instead
+  // of copying each section individually.
+  const handleCopyAll = async () => {
+    const text = buildCopyAllText({
+      sections: payloadSections,
+      streamChunks: streamChunks || undefined,
+      legacyResponse: payloadSections.length === 0 ? responseJson : null,
+      legacyRequest: payloadSections.length === 0 ? requestJson : null,
+      legacyResponseTitle: t("responsePayloadLegacy"),
+      legacyRequestTitle: t("requestPayloadLegacy"),
+    });
+    if (!text) return;
+    const success = await onCopy(text);
+    if (success !== false) {
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 2000);
+    }
+  };
+  const detailIssue =
+    detail?.detailState === "missing"
+      ? t("payloadMissing")
+      : detail?.detailState === "corrupt"
+        ? t("payloadCorrupt")
+        : null;
+  const tokenStats = {
+    totalIn: detail?.tokens?.in ?? log.tokens?.in ?? null,
+    totalOut: detail?.tokens?.out ?? log.tokens?.out ?? null,
+    cacheRead: detail?.tokens?.cacheRead ?? log.tokens?.cacheRead,
+    cacheWrite: detail?.tokens?.cacheWrite ?? log.tokens?.cacheWrite,
+    reasoning: detail?.tokens?.reasoning ?? log.tokens?.reasoning,
+    compressed: detail?.tokens?.compressed ?? log.tokens?.compressed,
+  };
+
+  const formatTokenValue = (value) => (value != null ? value.toLocaleString() : t("notAvailable"));
+
+  const cacheSource = detail?.cacheSource || log.cacheSource || "upstream";
+  const cacheSourceLabel = cacheSource === "semantic" ? t("semanticCache") : t("upstreamCache");
+  const cacheSourceClassName =
+    cacheSource === "semantic"
+      ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+      : "bg-sky-500/20 text-sky-700 dark:text-sky-300 border-sky-500/30";
+  const accountLabel = maskAccount(detail?.account || log.account, emailsVisible);
+  const codexAccountRotation = getCodexAccountRotation(detail);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center px-2 pt-[5vh] sm:px-4"
+      onClick={onClose}
+      onWheel={handleOverlayWheel}
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("ariaLabel")}
+    >
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div
+        ref={modalScrollRef}
+        className="relative w-full max-w-225 max-h-[90vh] overflow-x-hidden overflow-y-auto rounded-xl border border-border bg-bg-primary shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 border-b border-border bg-bg-primary/95 backdrop-blur-sm rounded-t-xl sm:px-6 sm:py-4">
+          <div className="flex flex-wrap items-center gap-2 min-w-0 sm:gap-3">
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                {log.active ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-bold bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                    <span className="inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                  </span>
+                ) : log.status === 0 ? (
+                  <span className="inline-block px-2.5 py-1 rounded text-xs font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                    {t("completed")}
+                  </span>
+                ) : (
+                  <span
+                    className="inline-block px-2.5 py-1 rounded text-xs font-bold"
+                    style={{ backgroundColor: statusStyle.bg, color: statusStyle.text }}
+                  >
+                    {log.status}
+                  </span>
+                )}
+                {hasStatusDiscrepancy && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-bg-subtle border border-border text-text-muted">
+                    {t("upstreamStatus", { status: providerStatus })}
+                  </span>
+                )}
+                {log.method && <span className="font-bold text-lg">{log.method}</span>}
+              </div>
+              {hasStatusDiscrepancy && (
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium mt-0.5">
+                  {t("statusDiscrepancy", { status: log.status, provider: providerStatus })}
+                </span>
+              )}
+            </div>
+            <span className="text-text-muted font-mono text-sm self-center ml-2">{log.path}</span>
+            {log.id && (
+              <span className="text-[10px] text-text-muted/50 font-mono self-center ml-2 px-1.5 py-0.5 rounded bg-bg-subtle border border-border/40 select-all">
+                {log.id}
+              </span>
+            )}
+            {log.correlationId && (
+              <span
+                className="text-[10px] text-text-muted/50 font-mono self-center ml-2 px-1.5 py-0.5 rounded bg-bg-subtle border border-border/40 select-all"
+                title={t("correlationId")}
+              >
+                {t("correlationIdValue", { id: log.correlationId })}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={handleCopyAll}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
+              aria-label={t("copyAll")}
+              title={t("copyAll")}
+            >
+              <span className="material-symbols-outlined text-[16px]">
+                {copiedAll ? "check" : "content_copy"}
+              </span>
+              <span className="text-xs font-medium">
+                {copiedAll ? t("copiedAll") : t("copyAll")}
+              </span>
+            </button>
+            {/* Only rendered when a caller actually wires up navigation (RequestLoggerV2's
+                list view) — a caller with no ordered-list context to navigate through
+                (conversations page, RequestTimeline) passes neither, so there's nothing
+                to show instead of a permanently-disabled dead button. */}
+            {(onPrevious || onNext) && (
+              <>
+                <button
+                  onClick={onPrevious}
+                  disabled={!onPrevious}
+                  className="p-1.5 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                  aria-label={t("previousRequest")}
+                >
+                  <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                </button>
+                <button
+                  onClick={onNext}
+                  disabled={!onNext}
+                  className="p-1.5 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                  aria-label={t("nextRequest")}
+                >
+                  <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                </button>
+              </>
+            )}
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-bg-subtle text-text-muted hover:text-text-primary transition-colors"
+              aria-label={t("close")}
+            >
+              <span className="material-symbols-outlined">close</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 flex flex-col gap-6 sm:p-6">
+          {/* Metadata Grid */}
+          {log.active ? (
+            <div className="flex flex-wrap gap-4 p-4 bg-bg-subtle rounded-xl border border-border">
+              <div className="min-w-[140px] flex-1">
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("startedAt")}
+                </div>
+                <div className="text-sm font-medium">{formatDate(log.timestamp)}</div>
+              </div>
+              <div className="min-w-[100px] flex-1">
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("duration")}
+                </div>
+                <div className="text-sm font-medium">{formatDuration(log.duration)}</div>
+              </div>
+              <div className="min-w-[140px] flex-1">
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("model")}
+                </div>
+                <div className="text-sm font-medium text-primary font-mono">{log.model}</div>
+              </div>
+              <div className="min-w-[120px] flex-1">
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("provider")}
+                </div>
+                <span
+                  className="inline-block px-2.5 py-1 rounded text-[10px] font-bold uppercase"
+                  style={{ backgroundColor: providerColor.bg, color: providerColor.text }}
+                >
+                  {providerLabel}
+                </span>
+              </div>
+              <div className="min-w-[120px] flex-1">
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("account")}
+                </div>
+                <div className="text-sm font-medium">{accountLabel}</div>
+              </div>
+            </div>
+          ) : (
+            <div
+              className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-bg-subtle rounded-xl border border-border"
+              data-testid="request-log-metadata-grid"
+            >
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("startedAt")}
+                </div>
+                <div className="text-sm font-medium">
+                  {(() => {
+                    try {
+                      const ts = new Date(log.timestamp).getTime();
+                      if (!Number.isFinite(ts)) return "\u2014";
+                      return formatDate(new Date(ts - (log.duration || 0)).toISOString());
+                    } catch {
+                      return "\u2014";
+                    }
+                  })()}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("endedAt")}
+                </div>
+                <div className="text-sm font-medium">{formatDate(log.timestamp)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("duration")}
+                </div>
+                <div className="text-sm font-medium">{formatDuration(log.duration)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("input")}
+                </div>
+                <div
+                  className="flex flex-wrap items-center gap-1.5"
+                  data-testid="token-group-input"
+                >
+                  <span className="px-2 py-0.5 rounded bg-primary/20 text-primary text-xs font-bold">
+                    {t("totalIn", { value: formatTokenValue(tokenStats.totalIn) })}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-700 dark:text-sky-400 text-xs font-bold">
+                    {t("cacheRead", { value: formatTokenValue(tokenStats.cacheRead) })}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-bold">
+                    {t("cacheWrite", { value: formatTokenValue(tokenStats.cacheWrite) })}
+                  </span>
+                  {tokenStats.compressed != null &&
+                    tokenStats.compressed > 0 &&
+                    (() => {
+                      const fromTokens = tokenStats.compressed + Math.max(0, tokenStats.totalIn);
+                      const saved = Math.min(tokenStats.compressed, fromTokens);
+                      const pct =
+                        fromTokens > 0
+                          ? Math.max(0, Math.min(100, Math.round((saved / fromTokens) * 100)))
+                          : 100;
+                      return (
+                        <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-700 dark:text-purple-300 text-xs font-bold">
+                          {t("compressed", {
+                            from: fromTokens.toLocaleString(),
+                            to: Math.max(0, tokenStats.totalIn).toLocaleString(),
+                            percent: pct,
+                          })}
+                        </span>
+                      );
+                    })()}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("output")}
+                </div>
+                <div
+                  className="flex flex-wrap items-center gap-1.5"
+                  data-testid="token-group-output"
+                >
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-bold">
+                    {t("totalOut", { value: formatTokenValue(tokenStats.totalOut) })}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-violet-500/20 text-violet-700 dark:text-violet-400 text-xs font-bold">
+                    {t("reasoning", { value: formatTokenValue(tokenStats.reasoning) })}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("model")}
+                </div>
+                <div className="text-sm font-medium text-primary font-mono">{log.model}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("requestedModel")}
+                </div>
+                <div
+                  className={`text-sm font-medium font-mono ${
+                    (detail?.requestedModel || log.requestedModel) &&
+                    (detail?.requestedModel || log.requestedModel) !== log.model
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-text-muted"
+                  }`}
+                >
+                  {detail?.requestedModel || log.requestedModel || "\u2014"}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("provider")}
+                </div>
+                <span
+                  className="inline-block px-2.5 py-1 rounded text-[10px] font-bold uppercase"
+                  style={{ backgroundColor: providerColor.bg, color: providerColor.text }}
+                >
+                  {providerLabel}
+                </span>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("requestProtocol")}
+                </div>
+                <span
+                  className="inline-block px-2.5 py-1 rounded text-[10px] font-bold uppercase"
+                  style={{ backgroundColor: protocol.bg, color: protocol.text }}
+                >
+                  {protocol.label}
+                </span>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("cacheSource")}
+                </div>
+                <span
+                  className={`inline-block px-2.5 py-1 rounded text-[10px] font-bold border ${cacheSourceClassName}`}
+                >
+                  {cacheSourceLabel}
+                </span>
+              </div>
+              {(detail?.modelPinned || log.modelPinned) && (
+                <div>
+                  <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                    {t("modelPinning")}
+                  </div>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-bold bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-500/25">
+                    <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M4.5 2A1.5 1.5 0 003 3.5v1.9l-1.4 2.8A.5.5 0 002 9h4v4.5a.5.5 0 00.5.5h3a.5.5 0 00.5-.5V9h4a.5.5 0 00.44-.73L13 5.4V3.5A1.5 1.5 0 0011.5 2h-7z" />
+                    </svg>
+                    {t("activeModelPinning")}
+                  </span>
+                </div>
+              )}
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("account")}
+                </div>
+                <div className="text-sm font-medium">{accountLabel}</div>
+                {codexAccountRotation && (
+                  <div
+                    className="mt-1 text-[10px] text-amber-600 dark:text-amber-400 font-mono"
+                    title={`${codexAccountRotation.initialConnectionId} -> ${codexAccountRotation.finalConnectionId}`}
+                  >
+                    {t("rotated", {
+                      initial: formatConnectionId(codexAccountRotation.initialConnectionId),
+                      final: formatConnectionId(codexAccountRotation.finalConnectionId),
+                    })}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("apiKey")}
+                </div>
+                <div
+                  className="text-sm font-medium"
+                  title={
+                    detail?.apiKeyName ||
+                    detail?.apiKeyId ||
+                    log.apiKeyName ||
+                    log.apiKeyId ||
+                    t("noApiKey")
+                  }
+                >
+                  {formatApiKeyLabel(
+                    detail?.apiKeyName || log.apiKeyName,
+                    detail?.apiKeyId || log.apiKeyId
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  {t("combo")}
+                </div>
+                {detail?.comboName || log.comboName ? (
+                  <span className="inline-block px-2.5 py-1 rounded-full text-[10px] font-bold bg-violet-500/20 text-violet-700 dark:text-violet-300 border border-violet-500/30">
+                    {detail?.comboName || log.comboName}
+                  </span>
+                ) : (
+                  <div className="text-sm text-text-muted">{"\u2014"}</div>
+                )}
+              </div>
+              <div>
+                <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                  Conversation
+                </div>
+                {detail?.sessionTag || log.sessionTag ? (
+                  <div
+                    className="text-sm font-mono select-all"
+                    title={detail?.sessionTag || log.sessionTag}
+                  >
+                    {(detail?.sessionTag || log.sessionTag).slice(0, 20)}
+                    {"\u2026"}
+                  </div>
+                ) : (
+                  <div className="text-sm text-text-muted">{"\u2014"}</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Error Message */}
+          {(detail?.error || log.error) && (
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30">
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[10px] text-red-600 dark:text-red-400 uppercase tracking-wider font-bold">
+                  {t("error")}
+                </div>
+                {isCombo503 && !cleared && (
+                  <button
+                    onClick={handleUnblockAll}
+                    disabled={unblockAllBusy}
+                    className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-lg
+                      bg-amber-500/10 border border-amber-500/30 text-amber-600
+                      hover:bg-amber-500/15 hover:border-amber-500/50
+                      dark:text-amber-400 transition-all duration-200
+                      disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <rect x="3" y="6" width="10" height="8" rx="1" />
+                      <path d="M5 6V4a3 3 0 0 1 3-3h0a3 3 0 0 1 3 3v1" />
+                      <circle cx="8" cy="10" r="1" fill="currentColor" stroke="none" />
+                    </svg>
+                    {unblockAllBusy ? "..." : t("unblockAll")}
+                  </button>
+                )}
+                {isCombo503 && cleared && (
+                  <span className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-lg bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-400">
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <polyline points="4 8 7 11 12 4" />
+                    </svg>
+                    {t("cleared")}
+                  </span>
+                )}
+                {isModelCooldown && !cleared && (
+                  <button
+                    onClick={handleUnblockModel}
+                    disabled={unblocking}
+                    className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-lg
+                      bg-amber-500/10 border border-amber-500/30 text-amber-600
+                      hover:bg-amber-500/15 hover:border-amber-500/50
+                      dark:text-amber-400 transition-all duration-200
+                      disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <rect x="3" y="6" width="10" height="8" rx="1" />
+                      <path d="M5 6V4a3 3 0 0 1 3-3h0a3 3 0 0 1 3 3v1" />
+                      <circle cx="8" cy="10" r="1" fill="currentColor" stroke="none" />
+                    </svg>
+                    {unblocking ? "..." : t("unblock")}
+                  </button>
+                )}
+                {isModelCooldown && cleared && (
+                  <span className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium rounded-lg bg-green-500/10 border border-green-500/30 text-green-600 dark:text-green-400">
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <polyline points="4 8 7 11 12 4" />
+                    </svg>
+                    {t("cleared")}
+                  </span>
+                )}
+              </div>
+              <div className="text-sm text-red-600 dark:text-red-300 font-mono whitespace-pre-wrap break-words">
+                {formatErrorForDisplay(detail?.error || log.error)}
+              </div>
+            </div>
+          )}
+
+          {/* Related Requests (same correlation ID) */}
+          {relatedLogs.length > 1 && (
+            <div className="p-4 rounded-xl bg-bg-subtle border border-border">
+              <div className="text-[10px] text-text-muted uppercase tracking-wider mb-2 font-bold">
+                {t("relatedRequests", { count: relatedLogs.length })}
+              </div>
+              <div className="flex flex-col gap-1">
+                {[...relatedLogs]
+                  .sort((a, b) => {
+                    const aStart = new Date(a.timestamp).getTime() - (a.duration || 0);
+                    const bStart = new Date(b.timestamp).getTime() - (b.duration || 0);
+                    return aStart - bStart;
+                  })
+                  .map((r) => {
+                    const rStatusStyle = r.active ? null : getStatusStyle(r.status);
+                    const isCurrent = r.id === log.id;
+                    const startTime = new Date(new Date(r.timestamp).getTime() - (r.duration || 0));
+                    return (
+                      <button
+                        key={r.id}
+                        onClick={() => !isCurrent && onSelectRelated?.(r)}
+                        disabled={isCurrent}
+                        className={`flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs transition-colors ${
+                          isCurrent
+                            ? "bg-primary/10 border border-primary/30 cursor-default"
+                            : "hover:bg-bg-hover cursor-pointer"
+                        }`}
+                      >
+                        <span
+                          className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold min-w-[28px] text-center"
+                          style={
+                            rStatusStyle
+                              ? { backgroundColor: rStatusStyle.bg, color: rStatusStyle.text }
+                              : { backgroundColor: "#374151", color: "#fff" }
+                          }
+                        >
+                          {r.status || "..."}
+                        </span>
+                        <span className="font-mono text-text-muted">{r.id}</span>
+                        <span className="text-text-muted">{r.model}</span>
+                        <span className="text-text-muted text-[10px]">
+                          {startTime.toLocaleTimeString(locale, { hour12: false })}
+                        </span>
+                        <span className="text-text-muted ml-auto">
+                          {formatDuration(r.duration)}
+                        </span>
+                        {isCurrent && (
+                          <span className="text-[9px] text-primary font-bold ml-1">
+                            {t("current")}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
+          {detailIssue && (
+            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
+              <div className="text-[10px] text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-1 font-bold">
+                {t("detailStatus")}
+              </div>
+              <div className="text-sm text-amber-700 dark:text-amber-200">{detailIssue}</div>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="p-8 text-center text-text-muted animate-pulse">
+              {t("loadingDetails")}
+            </div>
+          ) : (
+            <>
+              <ConversationContextSection key={log.id} log={log} detail={detail} />
+
+              {streamChunks && streamChunks.provider && (
+                <StreamSection
+                  title={t("providerEventStream")}
+                  sectionId="providerEventStream"
+                  json={
+                    Array.isArray(streamChunks.provider)
+                      ? streamChunks.provider.join("")
+                      : String(streamChunks.provider)
+                  }
+                  onCopy={() =>
+                    onCopy(
+                      Array.isArray(streamChunks.provider)
+                        ? streamChunks.provider.join("")
+                        : String(streamChunks.provider)
+                    )
+                  }
+                />
+              )}
+
+              {streamChunks && streamChunks.client && (
+                <StreamSection
+                  title={t("clientEventStream")}
+                  sectionId="clientEventStream"
+                  json={
+                    Array.isArray(streamChunks.client)
+                      ? streamChunks.client.join("")
+                      : String(streamChunks.client)
+                  }
+                  onCopy={() =>
+                    onCopy(
+                      Array.isArray(streamChunks.client)
+                        ? streamChunks.client.join("")
+                        : String(streamChunks.client)
+                    )
+                  }
+                />
+              )}
+
+              {streamChunks &&
+                streamChunks.openai &&
+                !streamChunks.provider &&
+                !streamChunks.client && (
+                  <StreamSection
+                    title={t("eventStream")}
+                    sectionId="eventStream"
+                    json={
+                      Array.isArray(streamChunks.openai)
+                        ? streamChunks.openai.join("")
+                        : String(streamChunks.openai)
+                    }
+                    onCopy={() =>
+                      onCopy(
+                        Array.isArray(streamChunks.openai)
+                          ? streamChunks.openai.join("")
+                          : String(streamChunks.openai)
+                      )
+                    }
+                  />
+                )}
+
+              {payloadSections.length > 0 &&
+                payloadSections.map((section) => (
+                  <PayloadSection
+                    key={section.key}
+                    title={section.title}
+                    sectionId={section.key}
+                    json={section.json}
+                    onCopy={() => onCopy(section.json)}
+                  />
+                ))}
+
+              {payloadSections.length === 0 && responseJson && (
+                <PayloadSection
+                  title={t("responsePayloadLegacy")}
+                  sectionId="responsePayloadLegacy"
+                  json={responseJson}
+                  onCopy={() => onCopy(responseJson)}
+                />
+              )}
+
+              {payloadSections.length === 0 && requestJson && (
+                <PayloadSection
+                  title={t("requestPayloadLegacy")}
+                  sectionId="requestPayloadLegacy"
+                  json={requestJson}
+                  onCopy={() => onCopy(requestJson)}
+                />
+              )}
+
+              {payloadSections.length === 0 && !requestJson && !responseJson && !loading && (
+                <div className="p-6 text-center text-text-muted">
+                  <span className="material-symbols-outlined text-[32px] mb-2 block opacity-40">
+                    info
+                  </span>
+                  <p className="text-sm">{t("noPayload")}</p>
+                  <p className="text-xs mt-1">{t("detailedPayloadInfo")}</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

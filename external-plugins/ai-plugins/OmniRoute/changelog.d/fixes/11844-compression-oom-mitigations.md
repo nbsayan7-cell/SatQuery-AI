@@ -1,0 +1,1 @@
+- **perf(compression):** OOM mitigations for large payload hashing, memoization, and token estimation ([#11844](https://github.com/diegosouzapw/OmniRoute/pull/11844) — thanks @AndrianBalanescu)

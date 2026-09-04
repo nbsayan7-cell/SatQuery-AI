@@ -1,0 +1,17 @@
+{
+  "name": "Shader Gradient",
+  "id": "1203016883447870818",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html",
+  "editorType": [
+    "figma","figjam",
+    "slides",
+    "buzz"
+  ],
+  "permissions": [
+    "currentuser"
+  ],
+  "networkAccess": { "allowedDomains": ["*"], "reasoning":"This plugin needs to access the internet to load the UI from the other domain, and some resources like hdr." },
+  "documentAccess": "dynamic-page"
+}

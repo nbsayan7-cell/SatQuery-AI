@@ -1,0 +1,3 @@
+src/engine/*taint* @IagoAbal @semgrep/languages
+src/analyzing @IagoAbal @semgrep/languages
+src/tainting @IagoAbal @semgrep/languages

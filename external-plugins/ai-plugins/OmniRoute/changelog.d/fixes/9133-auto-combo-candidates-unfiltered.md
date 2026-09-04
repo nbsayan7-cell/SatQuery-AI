@@ -1,0 +1,1 @@
+- fix(sse): stop the auto-combo candidates inspector from silently dropping model-locked/cooled-down rows (#9133)

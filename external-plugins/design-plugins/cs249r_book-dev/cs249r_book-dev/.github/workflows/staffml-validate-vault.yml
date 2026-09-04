@@ -1,0 +1,300 @@
+name: '🎯 StaffML · ✅ Validate (Vault)'
+
+# =============================================================================
+# Vault validation — data integrity + CLI package + worker contract.
+#
+# Parallel to staffml-validate-dev.yml (which validates the site build);
+# this one validates the vault data layer + vault-cli + worker code.
+#
+# Checks performed:
+#   - ruff + mypy + pytest on vault-cli.
+#   - vault check --strict on the full corpus (9 structural invariants).
+#   - vault build + release_hash equivalence vs corpus-equivalence-hash.txt.
+#   - vault codegen --check (hash-based shared-types drift guard).
+#   - Registry append-only check vs base ref.
+#   - Exemplar-coverage audit report generation.
+#   - Worker vitest (staffml-vault-worker/tests) on worker-path PRs.
+#
+# Referenced from: interviews/vault/ARCHITECTURE.md §19.3, TESTING.md §4.1.
+# Renamed 2026-04-22 from vault-ci.yml for consistency with the
+# staffml-<verb>-<scope> workflow naming convention used across the repo.
+# =============================================================================
+
+on:
+  workflow_dispatch:
+  # Reusable: staffml-preview-dev.yml calls this via `uses:` so its deploy
+  # job can `needs:` a green vault validate. Standalone push/PR triggers
+  # below stay so the publish guard and README badge still see direct
+  # runs on dev (and so PRs that touch vault-cli/worker without staffml
+  # still get validated independent of Preview).
+  workflow_call:
+  pull_request:
+    paths:
+      - 'interviews/vault/**'
+      - 'interviews/vault-cli/**'
+      - 'interviews/staffml-vault-worker/**'
+      - 'interviews/staffml-vault-types/**'
+      - '.github/workflows/staffml-validate-vault.yml'
+  push:
+    branches: [dev]
+    paths:
+      - 'interviews/vault/**'
+      - 'interviews/vault-cli/**'
+      - 'interviews/staffml-vault-worker/**'
+
+concurrency:
+  # Group key uses a literal workflow-identifying string instead of
+  # ${{ github.workflow }} because the latter resolves to the CALLER's
+  # workflow name when this runs via `workflow_call`. Without the
+  # literal, both staffml-validate-dev and staffml-validate-vault — when
+  # called from the same staffml-preview-dev parent — produce the same
+  # group (parent-name + parent-run-id), and `cancel-in-progress: true`
+  # silently cancels whichever queued earlier. Observed on every push
+  # run since 2026-05-02 (introduced by 6ddb82a71b): vault jobs queue
+  # ~3s before Validate (Dev) jobs and get cancelled by them — turning
+  # the StaffML README badge red despite all real validation passing.
+  # `head_ref || run_id` still preserves PR cancel-on-amend (head_ref
+  # set on PRs) and per-run uniqueness for push/dispatch (head_ref empty
+  # → run_id fallback).
+  group: staffml-validate-vault-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+# Read-only token: jobs only checkout, install, lint, and test.
+permissions:
+  contents: read
+
+env:
+  # Workflow-wide single source for paths and versions. See docs/CI-VARIABLES.md.
+  # The `paths:` trigger filter is intentionally NOT vars-ified — GitHub Actions
+  # evaluates trigger filters at workflow-load time, before vars are resolved.
+  VAULT_DIR:     ${{ vars.VAULT_DIR     || 'interviews/vault' }}
+  VAULT_CLI_DIR: ${{ vars.VAULT_CLI_DIR || 'interviews/vault-cli' }}
+  # Wrangler 4.120 requires Node 22 or newer.
+  WORKER_NODE_VERSION: '22'
+  # Python is intentionally PINNED at the schema_fingerprint hash-stability
+  # version. Override `vars.PYTHON_VERSION` only if you also confirm the
+  # vault-cli Merkle hash output is unchanged on the new version.
+  PYTHON_VERSION: ${{ vars.PYTHON_VERSION || '3.12' }}
+
+jobs:
+  python:
+    name: vault-cli (python)
+    runs-on: ubuntu-latest
+    # 10 min, not 25: this job used to take a full clone (fetch-depth: 0) of
+    # this ~3 GB repo and stalled inside `git fetch` past even a 25 min budget
+    # (run 31432404409, 2026-08-10: 25m0s, zero steps executed, run cancelled,
+    # README badge red). It now uses the same sparse checkout as every other
+    # staffml job. actions/checkout adds --filter=blob:none whenever
+    # `sparse-checkout` is set, so the fetch skips the ~0.9 GB of tip-tree
+    # blobs this job never reads. The append-only check needs a single file
+    # from origin/main, supplied by the targeted shallow fetch further down
+    # rather than by cloning all 289 branches and 63 tags.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Depth 2, not 1: check_reviewer_identity.py diffs against HEAD~1 on
+          # push events (GITHUB_BASE_REF is empty outside a PR, so _base_ref()
+          # falls through to HEAD~1). A depth-1 fetch has no parent commit and
+          # the script dies in subprocess.run(check=True). Depth 2 is still
+          # cheap — the blob filter below, not the depth, is what makes this
+          # checkout fast.
+          fetch-depth: 2
+          # The cone must cover every path the steps below read: the corpus and
+          # id-registry (VAULT_DIR), the CLI plus its scripts (VAULT_CLI_DIR),
+          # and the generated TS types that `vault codegen --check` diffs
+          # (see codegen.py's GENERATED list). Reading a path outside the cone
+          # triggers a lazy per-blob fetch under the partial clone, which is
+          # slower than the bulk transfer it replaced — so extend this list
+          # whenever a step starts touching a new directory.
+          sparse-checkout: |
+            ${{ env.VAULT_DIR }}
+            ${{ env.VAULT_CLI_DIR }}
+            interviews/staffml-vault-types
+
+      - name: Set up Python (PINNED for hash stability)
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install vault-cli with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "$VAULT_CLI_DIR/[dev]"
+
+      - name: Verify CLI entry point
+        run: |
+          vault --version
+          vault --help
+
+      - name: Lint (ruff)
+        run: ruff check "$VAULT_CLI_DIR/src" "$VAULT_CLI_DIR/tests"
+
+      - name: Type-check (mypy, non-blocking)
+        run: mypy "$VAULT_CLI_DIR/src"
+        continue-on-error: true   # strict enforcement is a Phase-2 gate
+
+      - name: pytest (unit + integration + contract)
+        run: pytest "$VAULT_CLI_DIR/tests/" -v
+
+      - name: vault check --strict (corpus invariants)
+        run: vault check --strict --vault-dir "$VAULT_DIR"
+
+      - name: chains.json structural audit
+        # Structural gate on the live chain registry — runs the same
+        # validation apply_proposed_chains.py does before promoting a
+        # staging file (member ids exist + are published, levels
+        # non-decreasing, single-topic, multi-membership cap ≤ 2,
+        # L1/L2 anchor rule). Phase 4.1 of CHAIN_ROADMAP.md.
+        run: |
+          python3 "$VAULT_CLI_DIR/scripts/apply_proposed_chains.py" \
+            --proposed "$VAULT_DIR/chains.json" \
+            --dry-run
+
+      - name: chain coverage regression guard (per-track)
+        # Soft regression check: no track may drop to 0 chains. Hard
+        # floor at edge/mobile/tinyml ≥ 25 chains each (post-Phase 1
+        # baseline 49/46/36). If this trips on a real edit, raise the
+        # floor to the new baseline rather than weakening the guard.
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          from collections import Counter
+          chains = json.load(open(f"{os.environ['VAULT_DIR']}/chains.json"))
+          per_track = Counter(c["track"] for c in chains)
+          floors = {"cloud": 100, "edge": 25, "mobile": 25, "tinyml": 25, "global": 0}
+          fails = [(t, per_track.get(t, 0), f) for t, f in floors.items()
+                   if per_track.get(t, 0) < f]
+          print(f"per-track chain count: {dict(per_track)}")
+          if fails:
+              for t, n, f in fails:
+                  print(f"::error::track {t!r} has {n} chains; floor is {f}")
+              sys.exit(1)
+          print(f"all tracks above floor")
+          PY
+
+      - name: vault build (reproducibility smoke test)
+        # Historically this step also compared release_hash against a pinned
+        # value in corpus-equivalence-hash.txt. That pin was load-bearing
+        # when corpus.json was the source of truth (guarded against the
+        # committed-JSON drifting from the computed-from-YAMLs hash). Post-
+        # v1.0 the YAMLs ARE the source of truth and the build is
+        # deterministic-from-YAMLs, so the pin was a circular check that
+        # bounced every YAML-touching PR unless the contributor manually
+        # bumped the hash. Dropped 2026-04-22. The real integrity comes
+        # from vault check --strict + codegen drift check above.
+        run: |
+          vault build --vault-dir "$VAULT_DIR" --release-id regression-ci
+          RELEASE_HASH=$(python3 -c "
+          import sqlite3
+          conn = sqlite3.connect('$VAULT_DIR/vault.db')
+          print(conn.execute(\"SELECT value FROM release_metadata WHERE key='release_hash'\").fetchone()[0])
+          ")
+          echo "release_hash: $RELEASE_HASH"
+
+      - name: vault codegen --check (LinkML/Pydantic/DDL/TS drift)
+        run: vault codegen --check
+
+      # The §11.1 YAML → corpus.json equivalence check was retired
+      # 2026-04-26 along with corpus.json itself: the file is now a
+      # build artifact (gitignored, regenerated by `vault build
+      # --local-json` during local dev or the publish-live SYNC_VAULT
+      # step). Production reads from the Cloudflare D1 worker and the
+      # bundled corpus-summary.json, neither of which depends on a
+      # tracked corpus.json. With no committed file there is nothing
+      # to drift away from.
+
+      - name: gitignore guard (every question YAML is git-tracked)
+        # Phase 4.9 of CHAIN_ROADMAP.md. Catches the regression class
+        # where a .gitignore pattern accidentally excludes question
+        # YAMLs from the repo (the 924-yaml /data/ rescue in
+        # 367cda468 is the canonical bad day this prevents). A YAML
+        # under questions/ that is gitignored is invisible to the
+        # release pipeline, so it must fail CI.
+        run: |
+          set -euo pipefail
+          UNTRACKED=$(git ls-files --others --ignored --exclude-standard \
+                       -- "$VAULT_DIR/questions" || true)
+          if [ -n "$UNTRACKED" ]; then
+              echo "::error::question YAMLs are gitignored — release pipeline cannot see them:"
+              echo "$UNTRACKED"
+              exit 1
+          fi
+          echo "all question YAMLs under $VAULT_DIR/questions are git-tracked"
+
+      - name: Fetch base ref for the append-only check
+        # check_registry_append_only.py compares interviews/vault/id-registry.yaml
+        # against origin/main — one file from one ref, which does not justify the
+        # full-history clone this job used to take. The rev-parse is not
+        # decoration: the script returns 0 when `git show` fails (it treats a
+        # missing file at base as "first commit landing it"), so a base ref that
+        # silently failed to fetch would turn this invariant into a green no-op.
+        # Fail here instead, where the cause is obvious.
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin main:refs/remotes/origin/main
+          git rev-parse --verify origin/main >/dev/null
+
+      - name: id-registry append-only invariant
+        run: python3 "$VAULT_CLI_DIR/scripts/check_registry_append_only.py"
+
+      - name: Reviewer-identity spoof check (Gemini R5-H-3)
+        run: python3 "$VAULT_CLI_DIR/scripts/check_reviewer_identity.py"
+
+      - name: Exemplar-coverage audit report
+        run: |
+          REPORT="$RUNNER_TEMP/exemplar-gaps.yaml"
+          python3 "$VAULT_CLI_DIR/scripts/exemplar_coverage_audit.py" --output "$REPORT"
+          {
+            echo "### Exemplar coverage audit"
+            echo ""
+            echo '```yaml'
+            sed -n '1,8p' "$REPORT"
+            echo '```'
+            echo ""
+            echo "Full report is attached as the \`exemplar-coverage-audit\` artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload exemplar-coverage audit
+        uses: actions/upload-artifact@v7
+        with:
+          name: exemplar-coverage-audit
+          path: ${{ runner.temp }}/exemplar-gaps.yaml
+          retention-days: 14
+          if-no-files-found: error
+
+  worker:
+    name: staffml-vault-worker (vitest)
+    runs-on: ubuntu-latest
+    # See the timeout note on the `python` job above: full checkouts of this
+    # ~3 GB repo intermittently stall past 10 minutes. This job additionally
+    # uses a sparse checkout, which measured under 30 s across 11 samples in
+    # the same window that a full clone here hung for the full 10 min budget.
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: interviews/staffml-vault-worker
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The worker suite is self-contained: src/types.ts mirrors
+          # @staffml/vault-types rather than importing it, and nothing under
+          # src/ or tests/ reaches outside this directory.
+          sparse-checkout: interviews/staffml-vault-worker
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.WORKER_NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: interviews/staffml-vault-worker/package-lock.json
+
+      - name: Install worker deps (frozen)
+        run: npm ci
+
+      - name: tsc typecheck
+        run: npx tsc --noEmit
+
+      - name: vitest (worker contract tests)
+        run: npx vitest run

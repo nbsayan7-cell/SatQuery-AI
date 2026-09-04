@@ -1,0 +1,447 @@
+const ignore = require("ignore");
+const MAX_RETRIES = 3;
+
+/**
+ * @typedef {Object} RepoLoaderArgs
+ * @property {string} repo - The GitLab repository URL.
+ * @property {string} [branch] - The branch to load from (optional).
+ * @property {string} [accessToken] - GitLab access token for authentication (optional).
+ * @property {string[]} [ignorePaths] - Array of paths to ignore when loading (optional).
+ * @property {boolean} [fetchIssues] - Should issues be fetched (optional).
+ * @property {boolean} [fetchWikis] - Should wiki be fetched (optional).
+ */
+
+/**
+ * @typedef {Object} FileTreeObject
+ * @property {string} id - The file object ID.
+ * @property {string} name - name of file.
+ * @property {('blob'|'tree')} type - type of file object.
+ * @property {string} path - path + name of file.
+ * @property {string} mode - Linux permission code.
+ */
+
+/**
+ * @class
+ * @classdesc Loads and manages GitLab repository content.
+ */
+class GitLabRepoLoader {
+  /**
+   * Creates an instance of RepoLoader.
+   * @param {RepoLoaderArgs} [args] - The configuration options.
+   * @returns {GitLabRepoLoader}
+   */
+  constructor(args = {}) {
+    this.ready = false;
+    this.repo = args?.repo;
+    this.branch = args?.branch;
+    this.accessToken = args?.accessToken || null;
+    this.ignorePaths = args?.ignorePaths || [];
+    this.ignoreFilter = ignore().add(this.ignorePaths);
+    this.withIssues = args?.fetchIssues || false;
+    this.withWikis = args?.fetchWikis || false;
+
+    this.projectId = null;
+    this.apiBase = "https://gitlab.com";
+    this.author = null;
+    this.project = null;
+    this.branches = [];
+  }
+
+  #wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  #validGitlabUrl() {
+    const validPatterns = [
+      //eslint-disable-next-line
+      /https:\/\/gitlab\.com\/(?<author>[^\/]+)\/(?<project>.*)/,
+      // This should even match the regular hosted URL, but we may want to know
+      // if this was a hosted GitLab (above) or a self-hosted (below) instance
+      // since the API interface could be different.
+      //eslint-disable-next-line
+      /(http|https):\/\/[^\/]+\/(?<author>[^\/]+)\/(?<project>.*)/,
+    ];
+
+    const match = validPatterns
+      .find((pattern) => this.repo.match(pattern)?.groups)
+      ?.exec(this.repo);
+    if (!match?.groups) return false;
+
+    const { author, project } = match.groups;
+    this.projectId = encodeURIComponent(`${author}/${project}`);
+    this.apiBase = new URL(this.repo).origin;
+    this.author = author;
+    this.project = project;
+    return true;
+  }
+
+  async #validBranch() {
+    await this.getRepoBranches();
+    if (!!this.branch && this.branches.includes(this.branch)) return;
+
+    console.log(
+      "[Gitlab Loader]: Branch not set! Auto-assigning to a default branch."
+    );
+    this.branch = this.branches.includes("main") ? "main" : "master";
+    console.log(`[Gitlab Loader]: Branch auto-assigned to ${this.branch}.`);
+    return;
+  }
+
+  async #validateAccessToken() {
+    if (!this.accessToken) return;
+    try {
+      await fetch(`${this.apiBase}/api/v4/user`, {
+        method: "GET",
+        headers: this.accessToken ? { "PRIVATE-TOKEN": this.accessToken } : {},
+      }).then((res) => res.ok);
+    } catch (e) {
+      console.error(
+        "Invalid Gitlab Access Token provided! Access token will not be used",
+        e.message
+      );
+      this.accessToken = null;
+    }
+  }
+
+  /**
+   * Initializes the RepoLoader instance.
+   * @returns {Promise<RepoLoader>} The initialized RepoLoader instance.
+   */
+  async init() {
+    if (!this.#validGitlabUrl()) return;
+    await this.#validBranch();
+    await this.#validateAccessToken();
+    this.ready = true;
+    return this;
+  }
+
+  /**
+   * Recursively loads the repository content.
+   * @returns {Promise<Array<Object>>} An array of loaded documents.
+   * @throws {Error} If the RepoLoader is not in a ready state.
+   */
+  async recursiveLoader() {
+    if (!this.ready) throw new Error("[Gitlab Loader]: not in ready state!");
+
+    if (this.accessToken)
+      console.log(
+        `[Gitlab Loader]: Access token set! Recursive loading enabled for ${this.repo}!`
+      );
+
+    const docs = [];
+
+    console.log(`[Gitlab Loader]: Fetching files.`);
+
+    const files = await this.fetchFilesRecursive();
+
+    console.log(`[Gitlab Loader]: Fetched ${files.length} files.`);
+
+    for (const file of files) {
+      if (this.ignoreFilter.ignores(file.path)) continue;
+
+      docs.push({
+        pageContent: file.content,
+        metadata: {
+          source: file.path,
+          url: `${this.repo}/-/blob/${this.branch}/${file.path}`,
+        },
+      });
+    }
+
+    if (this.withIssues) {
+      console.log(`[Gitlab Loader]: Fetching issues.`);
+      const issues = await this.fetchIssues();
+      console.log(
+        `[Gitlab Loader]: Fetched ${issues.length} issues with discussions.`
+      );
+      docs.push(
+        ...issues.map((issue) => ({
+          issue,
+          metadata: {
+            source: `issue-${this.repo}-${issue.iid}`,
+            url: issue.web_url,
+          },
+        }))
+      );
+    }
+
+    if (this.withWikis) {
+      console.log(`[Gitlab Loader]: Fetching wiki.`);
+      const wiki = await this.fetchWiki();
+      console.log(`[Gitlab Loader]: Fetched ${wiki.length} wiki pages.`);
+      docs.push(
+        ...wiki.map((wiki) => ({
+          wiki,
+          metadata: {
+            source: `wiki-${this.repo}-${wiki.slug}`,
+            url: `${this.repo}/-/wikis/${wiki.slug}`,
+          },
+        }))
+      );
+    }
+
+    return docs;
+  }
+
+  #branchPrefSort(branches = []) {
+    const preferredSort = ["main", "master"];
+    return branches.reduce((acc, branch) => {
+      if (preferredSort.includes(branch)) return [branch, ...acc];
+      return [...acc, branch];
+    }, []);
+  }
+
+  /**
+   * Retrieves all branches for the repository.
+   * @returns {Promise<string[]>} An array of branch names.
+   */
+  async getRepoBranches() {
+    if (!this.#validGitlabUrl() || !this.projectId) return [];
+    await this.#validateAccessToken();
+    this.branches = [];
+
+    const branchesRequestData = {
+      endpoint: `/api/v4/projects/${this.projectId}/repository/branches`,
+    };
+
+    let branchesPage = [];
+    while ((branchesPage = await this.fetchNextPage(branchesRequestData))) {
+      if (!Array.isArray(branchesPage) || !branchesPage?.length) break;
+      this.branches.push(...branchesPage.map((branch) => branch.name));
+    }
+    return this.#branchPrefSort(this.branches);
+  }
+
+  /**
+   * Returns list of all file objects from tree API for GitLab
+   * @returns {Promise<FileTreeObject[]>}
+   */
+  async fetchFilesRecursive() {
+    const files = [];
+    const filesRequestData = {
+      endpoint: `/api/v4/projects/${this.projectId}/repository/tree`,
+      queryParams: {
+        ref: this.branch,
+        recursive: true,
+      },
+    };
+
+    let filesPage = null;
+    let pagePromises = [];
+    while ((filesPage = await this.fetchNextPage(filesRequestData))) {
+      if (!Array.isArray(filesPage) || !filesPage?.length) break;
+      // Fetch all the files that are not ignored in parallel.
+      pagePromises = filesPage
+        .filter((file) => {
+          if (file.type !== "blob") return false;
+          return !this.ignoreFilter.ignores(file.path);
+        })
+        .map(async (file) => {
+          const content = await this.fetchSingleFileContents(file.path);
+          if (!content) return null;
+          return {
+            path: file.path,
+            content,
+          };
+        });
+
+      const pageFiles = await Promise.all(pagePromises);
+
+      files.push(...pageFiles.filter((item) => item !== null));
+      console.log(`Fetched ${files.length} files.`);
+    }
+    console.log(`Total files fetched: ${files.length}`);
+    return files;
+  }
+
+  /**
+   * Fetches all issues from the repository.
+   * @returns {Promise<Issue[]>} An array of issue objects.
+   */
+  async fetchIssues() {
+    const issues = [];
+    const issuesRequestData = {
+      endpoint: `/api/v4/projects/${this.projectId}/issues`,
+    };
+
+    let issuesPage = null;
+    let pagePromises = [];
+    while ((issuesPage = await this.fetchNextPage(issuesRequestData))) {
+      if (!Array.isArray(issuesPage) || !issuesPage?.length) break;
+      // Fetch all the issues in parallel.
+      pagePromises = issuesPage.map(async (issue) => {
+        const discussionsRequestData = {
+          endpoint: `/api/v4/projects/${this.projectId}/issues/${issue.iid}/discussions`,
+        };
+        let discussionPage = null;
+        const discussions = [];
+
+        while (
+          (discussionPage = await this.fetchNextPage(discussionsRequestData))
+        ) {
+          if (!Array.isArray(discussionPage) || !discussionPage?.length) break;
+          discussions.push(
+            ...discussionPage.map(({ notes }) =>
+              notes.map(
+                ({ body, author, created_at }) =>
+                  `${author.username} at ${created_at}:
+${body}`
+              )
+            )
+          );
+        }
+        const result = {
+          ...issue,
+          discussions,
+        };
+        return result;
+      });
+
+      const pageIssues = await Promise.all(pagePromises);
+
+      issues.push(...pageIssues);
+      console.log(`Fetched ${issues.length} issues.`);
+    }
+    console.log(`Total issues fetched: ${issues.length}`);
+    return issues;
+  }
+
+  /**
+   * Fetches all wiki pages from the repository.
+   * @returns {Promise<WikiPage[]>} An array of wiki page objects.
+   */
+  async fetchWiki() {
+    const wikiRequestData = {
+      endpoint: `/api/v4/projects/${this.projectId}/wikis`,
+      queryParams: {
+        with_content: "1",
+      },
+    };
+
+    const wikiPages = await this.fetchNextPage(wikiRequestData);
+    if (!Array.isArray(wikiPages)) return [];
+    console.log(`Total wiki pages fetched: ${wikiPages.length}`);
+    return wikiPages;
+  }
+
+  /**
+   * Fetches the content of a single file from the repository.
+   * @param {string} sourceFilePath - The path to the file in the repository.
+   * @returns {Promise<string|null>} The content of the file, or null if fetching fails.
+   */
+  async fetchSingleFileContents(sourceFilePath, retries = 0) {
+    try {
+      const url = `${this.apiBase}/api/v4/projects/${
+        this.projectId
+      }/repository/files/${encodeURIComponent(sourceFilePath)}/raw?ref=${
+        this.branch
+      }`;
+      const response = await fetch(url, {
+        method: "GET",
+        headers: this.accessToken ? { "PRIVATE-TOKEN": this.accessToken } : {},
+      });
+
+      if (response.status === 429) {
+        if (retries >= MAX_RETRIES) {
+          console.warn(
+            `[Gitlab Loader]: Rate limit persists for ${sourceFilePath} after ${retries} retries. Skipping.`
+          );
+          return null;
+        }
+        const retryAfter = Number(response.headers.get("retry-after")) || 60;
+        console.warn(
+          `[Gitlab Loader]: Rate limit hit fetching ${sourceFilePath}. Waiting ${retryAfter}s...`
+        );
+        await this.#wait(retryAfter * 1000);
+        return this.fetchSingleFileContents(sourceFilePath, retries + 1);
+      }
+
+      if (!response.ok)
+        throw new Error(`Failed to fetch single file ${sourceFilePath}`);
+
+      return await response.text();
+    } catch (e) {
+      console.error(`RepoLoader.fetchSingleFileContents`, e);
+      return null;
+    }
+  }
+
+  /**
+   * Fetches the next page of data from the API.
+   * @param {Object} requestData - The request data.
+   * @returns {Promise<Array<Object>|null>} The next page of data, or null if no more pages.
+   */
+  async fetchNextPage(requestData, retries = 0) {
+    try {
+      if (requestData.page === -1) return null;
+      if (!requestData.page) requestData.page = 1;
+
+      const { endpoint, perPage = 100, queryParams = {} } = requestData;
+      const params = new URLSearchParams({
+        ...queryParams,
+        per_page: perPage,
+        page: requestData.page,
+      });
+      const url = `${this.apiBase}${endpoint}?${params.toString()}`;
+
+      const response = await fetch(url, {
+        method: "GET",
+        headers: this.accessToken ? { "PRIVATE-TOKEN": this.accessToken } : {},
+      });
+
+      if (response.status === 429) {
+        if (retries >= MAX_RETRIES) {
+          console.warn(
+            `[Gitlab Loader]: Rate limit persists for ${endpoint} after ${retries} retries. Skipping.`
+          );
+          return null;
+        }
+        const retryAfter = Number(response.headers.get("retry-after")) || 60;
+        console.warn(
+          `[Gitlab Loader]: Rate limit hit for ${endpoint}. Waiting ${retryAfter}s before retrying...`
+        );
+        await this.#wait(retryAfter * 1000);
+        return this.fetchNextPage(requestData, retries + 1);
+      }
+
+      if (response.status === 401) {
+        console.warn(
+          `[Gitlab Loader]: Unauthorized request for ${endpoint}. Skipping.`
+        );
+        return null;
+      }
+
+      if (!response.ok) {
+        console.warn(
+          `[Gitlab Loader]: Unexpected status ${response.status} for ${endpoint}. Skipping.`
+        );
+        return null;
+      }
+
+      const data = await response.json();
+      if (!Array.isArray(data)) {
+        console.warn(`Unexpected response format for ${endpoint}:`, data);
+        return [];
+      }
+
+      // GitLab omits x-total-pages for large repos, so use x-next-page
+      // as the sole pagination signal — it's empty on the last page.
+      const nextPage = response.headers.get("x-next-page");
+      const totalPages = response.headers.get("x-total-pages");
+      console.log(
+        `Gitlab RepoLoader: fetched ${endpoint} page ${requestData.page}${
+          totalPages ? `/${totalPages}` : ""
+        } with ${data.length} records.`
+      );
+
+      requestData.page = nextPage?.trim() ? Number(nextPage) : -1;
+
+      return data;
+    } catch (e) {
+      console.error(`RepoLoader.fetchNextPage`, e);
+      return null;
+    }
+  }
+}
+
+module.exports = GitLabRepoLoader;

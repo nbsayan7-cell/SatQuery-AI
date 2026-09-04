@@ -1,0 +1,18 @@
+{
+  "framework": null,
+  "installCommand": "uv venv && uv pip install -r requirements.txt",
+  "buildCommand": ".venv/bin/mkdocs build",
+  "outputDirectory": "site",
+  "trailingSlash": true,
+  "headers": [
+    {
+      "source": "/(.*).md",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "text/markdown; charset=utf-8"
+        }
+      ]
+    }
+  ]
+}

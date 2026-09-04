@@ -1,0 +1,69 @@
+name: Lint
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "server/**/*.js"
+      - "server/eslint.config.mjs"
+      - "collector/**/*.js"
+      - "collector/eslint.config.mjs"
+      - "frontend/src/**/*.js"
+      - "frontend/src/**/*.jsx"
+      - "frontend/eslint.config.js"
+
+jobs:
+  lint-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - uses: actions/cache@v4
+        with:
+          path: server/node_modules
+          key: ${{ runner.os }}-yarn-server-${{ hashFiles('server/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-server-
+      - run: cd server && yarn install --frozen-lockfile
+      - run: cd server && yarn lint:check
+
+  lint-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-yarn-frontend-${{ hashFiles('frontend/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-frontend-
+      - run: cd frontend && yarn install --frozen-lockfile
+      - run: cd frontend && yarn lint:check
+
+  lint-collector:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+      - uses: actions/cache@v4
+        with:
+          path: collector/node_modules
+          key: ${{ runner.os }}-yarn-collector-${{ hashFiles('collector/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-collector-
+      - run: cd collector && yarn install --frozen-lockfile
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+          SHARP_IGNORE_GLOBAL_LIBVIPS: "true"
+      - run: cd collector && yarn lint:check

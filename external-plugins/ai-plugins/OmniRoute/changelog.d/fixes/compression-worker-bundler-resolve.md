@@ -1,0 +1,1 @@
+- **fix(compression):** use `pathToFileURL` in `compressionWorkerPool` so bundlers (Webpack / Turbopack) do not attempt static asset resolution of missing `compressionWorker.js` during build

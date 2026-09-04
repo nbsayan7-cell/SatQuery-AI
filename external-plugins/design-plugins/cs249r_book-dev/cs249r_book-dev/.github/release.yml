@@ -1,0 +1,68 @@
+# =============================================================================
+# GitHub Auto-Generated Release Notes Configuration
+# =============================================================================
+# This file configures how GitHub automatically generates release notes.
+# When creating a release, GitHub will categorize PRs based on labels.
+#
+# Usage: When creating a release via UI or CLI with --generate-notes flag,
+# GitHub will use these categories to organize the changelog.
+# =============================================================================
+
+changelog:
+  # Exclude certain labels from release notes
+  exclude:
+    labels:
+      - "skip-changelog"
+      - "dependencies"
+      - "chore"
+
+  # Categorize PRs by labels
+  categories:
+    - title: "🚀 New Features"
+      labels:
+        - "type: feature"
+        - "enhancement"
+        - "feat"
+
+    - title: "🐛 Bug Fixes"
+      labels:
+        - "type: bug"
+        - "bug"
+        - "fix"
+
+    - title: "📚 Documentation"
+      labels:
+        - "documentation"
+        - "docs"
+        - "area: book"
+
+    - title: "🧪 Tests"
+      labels:
+        - "tests"
+        - "testing"
+
+    - title: "🔧 CI/Infrastructure"
+      labels:
+        - "ci"
+        - "infrastructure"
+        - "area: tools"
+
+    - title: "🔥 TinyTorch"
+      labels:
+        - "area: tinytorch"
+
+    - title: "🌐 Website"
+      labels:
+        - "area: website"
+
+    - title: "📈 MLSysim"
+      labels:
+        - "area: mlsysim"
+
+    - title: "🎓 StaffML"
+      labels:
+        - "area: staffml"
+
+    - title: "🛠️ Other Changes"
+      labels:
+        - "*"

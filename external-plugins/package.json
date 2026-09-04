@@ -1,0 +1,12 @@
+{
+  "name": "sih-ai-plugins",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AI plugin toolkit — 17 plugins for chat, scanning, analysis & agent capabilities",
+  "scripts": {
+    "ai:gateway": "cd ai-plugins/OmniRoute && npm run dev",
+    "ai:scan": "pip install semgrep --quiet && semgrep scan --config auto ../gods-eye-view-main/gods-eye-view-main/src/",
+    "ai:flowise": "npx flowise start",
+    "ai:toolkit:setup": "powershell -ExecutionPolicy Bypass -File ai-toolkit/setup.ps1"
+  }
+}

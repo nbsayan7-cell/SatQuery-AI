@@ -1,0 +1,105 @@
+const OpenAI = require("openai");
+const Provider = require("./ai-provider.js");
+const InheritMultiple = require("./helpers/classes.js");
+const UnTooled = require("./helpers/untooled.js");
+const { getAnythingLLMUserAgent } = require("../../../../endpoints/utils");
+
+/**
+ * The agent provider for the Perplexity provider.
+ */
+class PerplexityProvider extends InheritMultiple([Provider, UnTooled]) {
+  model;
+
+  constructor(config = {}) {
+    super();
+    const { model = "sonar-small-online" } = config;
+    const client = new OpenAI({
+      baseURL: "https://api.perplexity.ai",
+      apiKey: process.env.PERPLEXITY_API_KEY ?? null,
+      defaultHeaders: {
+        "X-Pplx-Integration": getAnythingLLMUserAgent(),
+      },
+    });
+
+    this.providerTag = "perplexity";
+    this._client = client;
+    this.model = model;
+    this.verbose = true;
+  }
+
+  get client() {
+    return this._client;
+  }
+
+  get supportsAgentStreaming() {
+    return true;
+  }
+
+  /**
+   * Whether this provider supports native OpenAI-compatible tool calling.
+   * - Perplexity does not support tool calling at all and does not have API support for it.
+   * so until that changes we will use Untooled to get at least a general agentic experience with
+   * our tools.
+   * @returns {boolean}
+   */
+  async supportsNativeToolCalling() {
+    return false;
+  }
+
+  async #handleFunctionCallChat({ messages = [] }) {
+    return await this.client.chat.completions
+      .create({
+        model: this.model,
+        messages,
+      })
+      .then((result) => {
+        if (!result.hasOwnProperty("choices"))
+          throw new Error("Perplexity chat: No results!");
+        if (result.choices.length === 0)
+          throw new Error("Perplexity chat: No results length!");
+        return result.choices[0].message.content;
+      })
+      .catch((_) => {
+        return null;
+      });
+  }
+
+  async #handleFunctionCallStream({ messages = [] }) {
+    return await this.client.chat.completions.create({
+      model: this.model,
+      stream: true,
+      messages,
+    });
+  }
+
+  async stream(messages, functions = [], eventHandler = null) {
+    return await UnTooled.prototype.stream.call(
+      this,
+      messages,
+      functions,
+      this.#handleFunctionCallStream.bind(this),
+      eventHandler
+    );
+  }
+
+  async complete(messages, functions = []) {
+    return await UnTooled.prototype.complete.call(
+      this,
+      messages,
+      functions,
+      this.#handleFunctionCallChat.bind(this)
+    );
+  }
+
+  /**
+   * Get the cost of the completion.
+   *
+   * @param _usage The completion to get the cost for.
+   * @returns The cost of the completion.
+   */
+  getCost(_usage) {
+    return 0;
+  }
+}
+
+module.exports = PerplexityProvider;

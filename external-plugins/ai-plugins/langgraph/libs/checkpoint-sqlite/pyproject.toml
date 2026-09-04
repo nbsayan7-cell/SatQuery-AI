@@ -1,0 +1,92 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "langgraph-checkpoint-sqlite"
+version = "3.1.1"
+description = "Library with a SQLite implementation of LangGraph checkpoint saver."
+authors = []
+requires-python = ">=3.10"
+readme = "README.md"
+license = "MIT"
+license-files = ['LICENSE']
+dependencies = [
+    "langgraph-checkpoint>=4.1.0,<5.0.0",
+    "aiosqlite>=0.20",
+    "sqlite-vec>=0.1.6",
+]
+
+[project.urls]
+Source = "https://github.com/langchain-ai/langgraph/tree/main/libs/checkpoint-sqlite"
+Twitter = "https://x.com/langchain_oss"
+Slack = "https://www.langchain.com/join-community"
+Reddit = "https://www.reddit.com/r/LangChain/"
+
+[dependency-groups]
+test = [
+  "pytest",
+  "pytest-asyncio",
+  "pytest-mock",
+  "pytest-watcher",
+  "langgraph-checkpoint",
+  "langgraph-checkpoint-conformance",
+  "pytest-retry>=1.7.0",
+]
+lint = [
+  "ruff",
+  "codespell",
+  "ty",
+]
+dev = [
+  {include-group = "test"},
+  {include-group = "lint"},
+]
+
+[tool.uv]
+default-groups = ['dev']
+
+[tool.uv.sources]
+langgraph-checkpoint = { path = "../checkpoint", editable = true }
+langgraph-checkpoint-conformance = { path = "../checkpoint-conformance", editable = true }
+
+[tool.hatch.build.targets.wheel]
+include = ["langgraph"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --strict-config --durations=5 -vv"
+asyncio_mode = "auto"
+
+[tool.ruff]
+lint.select = [
+  "E",  # pycodestyle
+  "F",  # Pyflakes
+  "UP", # pyupgrade
+  "B",  # flake8-bugbear
+  "I",  # isort
+  "PLC0415",  # import-outside-top-level
+  "RUF100",  # unused noqa directive
+  "UP", # pyupgrade
+]
+lint.ignore = ["E501", "B008"]
+target-version = "py310"
+
+[tool.ty.rules]
+invalid-argument-type = "ignore"
+invalid-assignment = "ignore"
+invalid-key = "ignore"
+invalid-method-override = "ignore"
+invalid-return-type = "ignore"
+invalid-yield = "ignore"
+not-iterable = "ignore"
+not-subscriptable = "ignore"
+unused-type-ignore-comment = "ignore"
+unresolved-attribute = "ignore"
+unresolved-import = "ignore"
+unsupported-operator = "ignore"
+
+[tool.pytest-watcher]
+now = true
+delay = 0.1
+runner_args = ["--ff", "-v", "--tb", "short"]
+patterns = ["*.py"]

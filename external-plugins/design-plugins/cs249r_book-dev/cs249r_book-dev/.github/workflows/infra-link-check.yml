@@ -1,0 +1,275 @@
+name: '🔧 Infra · 🔗 Link Check'
+
+# =============================================================================
+# 🔗 Link Check — Reusable Lychee scan for any subsite (Tier 2)
+# =============================================================================
+#
+# Backstops the Tier 1 pre-commit internal-link checker
+# (shared/scripts/check-internal-links.py) by chasing EXTERNAL reachability
+# and any internal links pre-commit can't resolve (e.g. paths that depend on
+# the rendered site root).
+#
+# Inputs:
+#   path_pattern       File glob to scan (default: book qmd content).
+#   max_concurrency    Lychee concurrency cap.
+#   lycheeignore_path  Per-site exclusion file (default: book/config/linting/.lycheeignore).
+#                      Pass the path to <site>/.lycheeignore for site-scoped CI.
+#   fail_on_broken     If true, fail the job on any broken link. Default false
+#                      preserves the legacy "report only" behavior so older
+#                      callers don't suddenly start blocking.
+#   accept_status      Comma-separated list of HTTP statuses to accept as OK
+#                      (e.g. "200,403,429"). Default "200,403".
+#
+# Flow:
+#   1. CHECKOUT — Pull repository content
+#   2. SCAN     — Run Lychee link checker against the pattern
+#   3. SUMMARY  — Report status; fail if fail_on_broken=true and links are bad
+#
+# Triggers:
+#   - workflow_call: invoked from every <site>-validate-dev.yml (Tier 2)
+#   - workflow_call: invoked nightly by infra-link-rot-nightly.yml (Tier 3)
+#   - workflow_dispatch: manual one-off
+#
+# =============================================================================
+
+on:
+  workflow_call:
+    inputs:
+      path_pattern:
+        required: false
+        type: string
+        default: './book/quarto/contents/**/*.qmd'
+        description: 'File pattern to check links in.'
+      max_concurrency:
+        required: false
+        type: number
+        default: 10
+        description: 'Maximum concurrent link checks (1-20).'
+      lycheeignore_path:
+        required: false
+        type: string
+        default: 'book/config/linting/.lycheeignore'
+        description: 'Path to a Lychee exclude file (regex per line).'
+      fail_on_broken:
+        required: false
+        type: boolean
+        default: false
+        description: 'If true, fail the job when broken links are found.'
+      accept_status:
+        required: false
+        type: string
+        default: '200,403'
+        description: 'Comma-separated HTTP status codes Lychee should treat as OK.'
+
+    outputs:
+      check-status:
+        description: "Link check status (success/failure)"
+        value: ${{ jobs.check-links.outputs.status }}
+      broken-links-count:
+        description: "Number of broken links found (integer; '0' on clean run)"
+        value: ${{ jobs.check-links.outputs.broken-count }}
+      broken-links-sample:
+        description: "First few broken URLs (newline-separated, capped) for quick triage"
+        value: ${{ jobs.check-links.outputs.broken-sample }}
+
+  workflow_dispatch:
+    inputs:
+      path_pattern:
+        required: false
+        type: string
+        default: './book/quarto/contents/**/*.qmd'
+        description: 'File pattern to check links in.'
+      max_concurrency:
+        required: false
+        type: number
+        default: 10
+        description: 'Maximum concurrent link checks (1-20).'
+      lycheeignore_path:
+        required: false
+        type: string
+        default: 'book/config/linting/.lycheeignore'
+        description: 'Path to a Lychee exclude file.'
+      fail_on_broken:
+        required: false
+        type: boolean
+        default: false
+        description: 'Fail the job when broken links are found.'
+      accept_status:
+        required: false
+        type: string
+        default: '200,403'
+        description: 'Comma-separated HTTP status codes Lychee should treat as OK.'
+
+permissions:
+  contents: read
+
+jobs:
+  check-links:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ steps.link-summary.outputs.status }}
+      broken-count: ${{ steps.link-summary.outputs.broken-count }}
+      broken-sample: ${{ steps.link-summary.outputs.broken-sample }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: 🔎 Resolve ignore file
+        id: resolve-ignore
+        run: |
+          IGNORE='${{ inputs.lycheeignore_path }}'
+          if [ -f "$IGNORE" ]; then
+            echo "ignore_arg=--exclude-file $IGNORE" >> "$GITHUB_OUTPUT"
+            echo "Using ignore file: $IGNORE"
+          else
+            echo "ignore_arg=" >> "$GITHUB_OUTPUT"
+            echo "::warning::Ignore file '$IGNORE' not found; running without --exclude-file."
+          fi
+
+      - name: 🔗 Check Links
+        id: lychee
+        uses: lycheeverse/lychee-action@v2.8.0
+        with:
+          # NB: --exclude-mail was removed in lychee v0.21; mailto: links are
+          # now skipped by default and you must opt in with --include-mail.
+          # Default (skip) is what we want for link rot.
+          args: --verbose --no-progress --max-concurrency ${{ inputs.max_concurrency }} --accept ${{ inputs.accept_status }} ${{ steps.resolve-ignore.outputs.ignore_arg }} ${{ inputs.path_pattern }}
+          # Force the action's exit code to reflect link health. We then
+          # absorb the failure with `continue-on-error: true` below so the
+          # summary step can run and decide what to do with it.
+          fail: true
+          # Stable output path for the summary parser below.
+          output: ./lychee/out.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Always continue so we can produce a summary; the summary step fails
+        # the job when fail_on_broken is true.
+        continue-on-error: true
+
+      - name: 📊 Link Check Summary
+        id: link-summary
+        if: always()
+        run: |
+          set -uo pipefail
+
+          # ---- Determine status from the lychee step outcome ----
+          # `fail: true` (set above) makes the action exit non-zero when any
+          # broken link is found, which surfaces here as outcome=failure even
+          # though `continue-on-error: true` keeps the job green.
+          if [ "${{ steps.lychee.outcome }}" = "success" ]; then
+            STATUS="success"
+          else
+            STATUS="failure"
+          fi
+
+          # ---- Parse the lychee markdown report for an exact count ----
+          # The action writes a report to ./lychee/out.md by default. It is a
+          # series of top-level sections, one per outcome:
+          #
+          #   ## Errors per input      <- a failure
+          #   ## Timeouts per input    <- a failure
+          #   ## Redirects per input   <- NOT a failure, the link resolved
+          #   ## Ignored per input     <- NOT a failure, excluded on purpose
+          #   ## Suggestions per input <- NOT a failure
+          #
+          # and each entry inside them looks like
+          #   * [404] <https://example.com/foo> (at 12:3) | Not Found
+          # where the "(at line:col)" span is present whenever lychee knows the
+          # source position. Four properties of that shape drive the parsing.
+          #
+          # 1. Collect from Errors AND Timeouts, and only those. They are
+          #    siblings, not nested, so bounding the scan at the first "## "
+          #    after Errors silently drops every timeout, which is the same
+          #    under-count this step exists to fix.
+          #
+          # 2. Do not scan the whole file. Redirect entries have the identical
+          #    "* [<status>] <url>" shape, so a whole-file scan counts every
+          #    followed redirect as broken. Those are usually [200], and can
+          #    even be a status this workflow passed --accept for, which means
+          #    reporting links as broken that lychee was told are fine.
+          #
+          # 3. The bracketed status is not always numeric. A request that never
+          #    produced an HTTP response is reported as [ERROR] or [TIMEOUT]:
+          #    TLS failures, DNS failures, timeouts, and missing local files all
+          #    land there. Matching only digits drops exactly the failures that
+          #    are hardest to diagnose from a URL alone, and a site whose
+          #    failures are all of that kind parses to 0 and then gets reported
+          #    as "?" by the guard below.
+          #
+          # 4. The URL is not always last on the line. Strip the "(at line:col)"
+          #    span before the markdown autolink delimiters (<https://...>), or
+          #    the emitted URL keeps a trailing "> (at 12:3)" and every entry in
+          #    the triage list is corrupt.
+          REPORT="./lychee/out.md"
+          BROKEN_COUNT=0
+          BROKEN_SAMPLE=""
+          if [ -f "$REPORT" ]; then
+            BROKEN_URLS=$(awk '
+              # Collect from every section that means "this link failed".
+              # lychee writes each as its own top-level section, so Timeouts is
+              # a SIBLING of Errors, not nested inside it. Stopping at the first
+              # "## " after Errors therefore dropped every timeout, which is the
+              # same silent under-count this step exists to fix. Redirects,
+              # Ignored and Suggestions are siblings too, and are not failures.
+              /^##[[:space:]]+(Errors|Timeouts)[[:space:]]+per input[[:space:]]*$/ { collect = 1; next }
+              /^##[[:space:]]/                                                     { collect = 0 }
+              collect && /^[[:space:]]*\*[[:space:]]+\[[^]]+\][[:space:]]+/ {
+                  url = $0
+                  sub(/^[[:space:]]*\*[[:space:]]+\[[^]]+\][[:space:]]+/, "", url)
+                  sub(/[[:space:]]*\|.*$/, "", url)
+                  # lychee appends the source position as "(at line:col)" whenever
+                  # the link carries a span, so the URL is not always last on the
+                  # line and a bare trailing ">" strip leaves "url> (at 1:1)".
+                  sub(/[[:space:]]*\(at[[:space:]][^)]*\)[[:space:]]*$/, "", url)
+                  sub(/[[:space:]]+$/, "", url)
+                  sub(/^</, "", url)
+                  sub(/>$/, "", url)
+                  if (url != "") print url
+              }
+            ' "$REPORT" || true)
+            if [ -n "$BROKEN_URLS" ]; then
+              BROKEN_COUNT=$(printf '%s\n' "$BROKEN_URLS" | grep -c . || true)
+              BROKEN_SAMPLE=$(printf '%s\n' "$BROKEN_URLS" | head -n 10)
+            fi
+          fi
+
+          # If lychee said failure but we couldn't parse a count (e.g. report
+          # missing), surface "?" so downstream knows it's broken-but-unknown.
+          if [ "$STATUS" = "failure" ] && [ "$BROKEN_COUNT" = "0" ]; then
+            BROKEN_COUNT="?"
+          fi
+
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "broken-count=$BROKEN_COUNT" >> "$GITHUB_OUTPUT"
+          # Multi-line output requires the heredoc form.
+          {
+            echo "broken-sample<<__EOF_SAMPLE__"
+            echo "$BROKEN_SAMPLE"
+            echo "__EOF_SAMPLE__"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## 🔗 Link Check"
+            echo ""
+            echo "- **Pattern**: \`${{ inputs.path_pattern }}\`"
+            echo "- **Concurrency**: ${{ inputs.max_concurrency }}"
+            echo "- **Accept statuses**: ${{ inputs.accept_status }}"
+            echo "- **Status**: $STATUS"
+            echo "- **Broken**: $BROKEN_COUNT"
+            if [ -n "$BROKEN_SAMPLE" ]; then
+              echo ""
+              echo "<details><summary>First broken URLs</summary>"
+              echo ""
+              while IFS= read -r url; do
+                [ -z "$url" ] && continue
+                echo "- $url"
+              done <<< "$BROKEN_SAMPLE"
+              echo ""
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$STATUS" = "failure" ] && [ "${{ inputs.fail_on_broken }}" = "true" ]; then
+            echo "::error::Lychee found broken links and fail_on_broken=true."
+            exit 1
+          fi

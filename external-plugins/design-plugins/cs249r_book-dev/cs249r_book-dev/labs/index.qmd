@@ -1,0 +1,715 @@
+---
+pagetitle: "Interactive Labs"
+title: "Interactive Labs"
+---
+
+::: {.content-visible when-format="html"}
+
+```{=html}
+<style>
+/* ── Action Buttons ───────────────────────────────────────────────── */
+.action-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+}
+.action-row a {
+  display: inline-block;
+  padding: 0.5rem 1.2rem;
+  border-radius: 7px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+.btn-accent {
+  background: #2563EB;
+  color: white !important;
+}
+.btn-accent:hover { background: #3b82f6; }
+.btn-outline {
+  border: 1.5px solid #e2e8f0;
+  color: #475569 !important;
+}
+.btn-outline:hover { border-color: #2563EB; color: #fff !important; background: #2563EB; }
+
+/* ── Lab Preview Window ───────────────────────────────────────────── */
+.lab-preview-link {
+  display: block; text-decoration: none; color: inherit;
+  margin: 1.5rem 0 2rem;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.lab-preview-link:hover {
+  transform: translateY(-2px);
+  text-decoration: none; color: inherit;
+}
+.lab-preview-link:hover .lab-window {
+  box-shadow: 0 12px 32px rgba(15,23,42,0.08), 0 0 0 1px rgba(165,28,48,0.18);
+}
+.lab-window {
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  border-left: 6px solid #A51C30;
+  box-shadow: 0 4px 18px rgba(15,23,42,0.07);
+  overflow: hidden;
+  transition: box-shadow 0.25s ease;
+}
+.lab-window-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+.lab-window-dot { width: 10px; height: 10px; border-radius: 50%; }
+.lab-window-dot.red    { background: #ef4444; }
+.lab-window-dot.yellow { background: #eab308; }
+.lab-window-dot.green  { background: #22c55e; }
+.lab-window-tab {
+  margin-left: 12px; font-size: 0.72rem; font-weight: 600;
+  color: #475569; letter-spacing: 0.04em;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.lab-window-body { padding: 20px 24px 16px; text-align: left; }
+
+/* ── Three-panel flow ─────────────────────────────────────────────── */
+.lab-flow-panels {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  gap: 0; align-items: start;
+}
+.lab-flow-arrow {
+  display: flex; align-items: center; justify-content: center;
+  padding-top: 36px; color: #475569; font-size: 1.1rem;
+}
+.lp-panel { min-width: 0; }
+.lp-panel-label {
+  font-size: 0.62rem; font-weight: 700; color: #64748b;
+  text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 8px;
+}
+.lp-stakeholder {
+  background: #f8fafc;
+  border-left: 3px solid #006395;
+  border-radius: 0 8px 8px 0; padding: 12px 14px;
+}
+.lp-stakeholder-byline {
+  font-size: 0.6rem; font-weight: 700; color: #006395;
+  text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 5px;
+}
+.lp-stakeholder-quote {
+  font-style: italic; font-size: 0.78rem; color: #334155; line-height: 1.55;
+}
+.lp-stakeholder-name {
+  font-size: 0.68rem; color: #64748b; font-weight: 600; margin-top: 6px;
+}
+.lp-prediction-box {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-left: 3px solid #2563EB;
+  border-radius: 0 8px 8px 0; padding: 12px 14px;
+}
+.lp-prediction-q {
+  font-size: 0.78rem; font-weight: 600; color: #1e293b;
+  line-height: 1.5; margin-bottom: 10px;
+}
+.lp-option {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; margin: 4px 0;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px; font-size: 0.72rem; color: #334155; font-weight: 500;
+}
+.lp-option-radio {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid #2563EB; flex-shrink: 0;
+}
+.lp-option.selected {
+  background: #eff6ff; border-color: #3b82f6;
+}
+.lp-option.selected .lp-option-radio {
+  background: #2563EB; box-shadow: inset 0 0 0 2px #ffffff;
+}
+.lp-lock-warn {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 8px; padding: 6px 10px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px; font-size: 0.68rem; font-weight: 600; color: #b45309;
+}
+.lp-reveal { position: relative; }
+.lp-result-callout {
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px; padding: 8px 12px; margin-bottom: 10px;
+}
+.lp-result-callout .lp-result-icon {
+  font-size: 0.72rem; font-weight: 700; color: #008F45; margin-bottom: 2px;
+}
+.lp-result-callout .lp-result-text {
+  font-size: 0.7rem; color: #065f46; line-height: 1.45;
+}
+.lp-chart {
+  background: #ffffff; border-radius: 8px; padding: 10px 12px 8px;
+  border: 1px solid #e2e8f0;
+}
+.lp-chart-title {
+  font-size: 0.62rem; font-weight: 700; color: #64748b;
+  text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px;
+}
+.lp-chart-bars { display: flex; align-items: flex-end; gap: 6px; height: 64px; }
+.lp-bar-group {
+  display: flex; flex-direction: column; align-items: center; flex: 1; gap: 3px;
+}
+.lp-bar { width: 100%; border-radius: 3px 3px 0 0; min-height: 4px; }
+.lp-bar-label { font-size: 0.55rem; color: #64748b; font-weight: 600; white-space: nowrap; }
+.lp-chart-legend { display: flex; gap: 12px; margin-top: 6px; }
+.lp-legend-item {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 0.55rem; color: #64748b; font-weight: 600;
+}
+.lp-legend-swatch { width: 8px; height: 8px; border-radius: 2px; }
+
+/* ── HUD bar ──────────────────────────────────────────────────────── */
+.lp-hud {
+  display: flex; align-items: center; gap: 16px;
+  padding: 8px 24px; background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.68rem;
+}
+.lp-hud-label { color: #64748b; font-weight: 600; letter-spacing: 0.06em; }
+.lp-hud-value { color: #0f172a; }
+.lp-hud-sep   { color: #cbd5e1; }
+.lp-hud-active { color: #008F45; font-weight: 700; }
+
+/* ── Install Section ──────────────────────────────────────────────── */
+.install-section {
+  background: #0f172a; color: #e2e8f0;
+  border-radius: 12px; padding: 1.5rem; margin: 2rem 0 1rem;
+}
+.install-section h3 { color: white; margin-top: 0; font-size: 1rem; }
+.install-section p { font-size: 0.85rem; color: #94a3b8; }
+.install-section code {
+  background: #1e293b; padding: 0.15rem 0.4rem;
+  border-radius: 4px; font-size: 0.85rem; color: #93c5fd;
+}
+.install-section pre {
+  background: #1e293b; padding: 1rem; border-radius: 8px;
+  margin: 0.75rem 0; overflow-x: auto;
+}
+.install-section pre code { padding: 0; background: none; }
+
+/* ── Lab Inventory: Volume + Cluster headings ─────────────────────── */
+/* Typography discipline: single font (Inter, inherited from site),    */
+/* three sizes (0.85 / 1 / 1.3 rem), two weights (400 / 700), three   */
+/* colors (#1e293b primary, #64748b secondary, #2563EB accent).        */
+.volume-heading {
+  margin: 2.5rem 0 0.4rem !important;
+  padding-bottom: 0.4rem !important;
+  border-bottom: 2px solid #1e293b !important;
+  font-size: 1.3rem !important; font-weight: 700 !important;
+  color: #1e293b !important;
+}
+section.volume-heading ~ section.volume-heading {
+  margin-top: 4.5rem !important;
+  padding-top: 1rem !important;
+  border-top: 1px dashed #cbd5e1 !important;
+}
+h3.volume-heading::after {
+  content: " · " attr(data-meta);
+  font-size: 0.85rem; font-weight: 400;
+  color: #64748b;
+  margin-left: 0.4rem;
+}
+.cluster-heading {
+  margin: 2rem 0 0.6rem !important;
+  font-size: 1rem !important; font-weight: 700 !important;
+  color: #1e293b !important;
+  border: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+h4.cluster-heading::after {
+  content: " · " attr(data-meta);
+  font-size: 0.85rem; font-weight: 400;
+  color: #64748b;
+  margin-left: 0.4rem;
+}
+
+/* ── Lab Card Grid ────────────────────────────────────────────────── */
+.lab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.65rem;
+  margin: 0 0 0.5rem;
+}
+
+/* ── Lab Card (minimal: number, title, question only) ─────────────── */
+.lab-card {
+  display: flex; flex-direction: column;
+  text-decoration: none; color: inherit;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  min-height: 110px;
+}
+.lab-card:hover {
+  border-color: #2563EB;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(37,99,235,0.08);
+  text-decoration: none; color: inherit;
+}
+.lab-num {
+  font-size: 0.85rem; font-weight: 700;
+  color: #2563EB;
+  margin-bottom: 0.25rem;
+}
+.lab-title {
+  font-size: 1rem; font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 0.3rem;
+  line-height: 1.3;
+}
+.lab-question {
+  font-size: 0.85rem; line-height: 1.45;
+  color: #64748b; margin: 0;
+  flex-grow: 1;
+}
+
+/* ── Capstone (full-width row in its own cluster — same color) ────── */
+.lab-card.capstone {
+  grid-column: 1 / -1;
+}
+.lab-card.capstone .lab-num::after {
+  content: " · CAPSTONE";
+  font-weight: 700;
+}
+
+/* ── Mobile ───────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .lab-flow-panels { grid-template-columns: 1fr; gap: 12px; }
+  .lab-flow-arrow { padding-top: 0; transform: rotate(90deg); font-size: 0.9rem; }
+  .lab-window-body { padding: 16px; }
+  .lp-hud { flex-wrap: wrap; gap: 8px 16px; }
+}
+@media (max-width: 600px) {
+  .lab-grid { grid-template-columns: 1fr; }
+  h3.volume-heading::after { display: block; margin-left: 0; }
+  h4.cluster-heading::after { display: block; margin-left: 0; }
+}
+</style>
+
+<!-- Lab Preview Window -->
+<a href="vol1/lab_01_ml_intro/" class="lab-preview-link" aria-label="Launch Lab 01: The AI Triad">
+  <div class="lab-window">
+    <div class="lab-window-bar">
+      <span class="lab-window-dot red"></span>
+      <span class="lab-window-dot yellow"></span>
+      <span class="lab-window-dot green"></span>
+      <span class="lab-window-tab">Lab 01 &mdash; The AI Triad</span>
+    </div>
+    <div class="lab-window-body">
+      <div class="lab-flow-panels">
+        <!-- PANEL 1: Stakeholder Message -->
+        <div class="lp-panel">
+          <div class="lp-panel-label">Step 1 &middot; Read the Scenario</div>
+          <div class="lp-stakeholder">
+            <div class="lp-stakeholder-byline">Incoming Message &middot; CTO</div>
+            <div class="lp-stakeholder-quote">
+              &ldquo;Our model accuracy dropped 8%. The infra team wants 4&times; more GPUs.
+              The data team says training data is 18 months old. Who is right?&rdquo;
+            </div>
+            <div class="lp-stakeholder-name">&mdash; Dr. Priya Mehta, MedVision Health</div>
+          </div>
+        </div>
+        <div class="lab-flow-arrow">&rarr;</div>
+        <!-- PANEL 2: Prediction Lock -->
+        <div class="lp-panel">
+          <div class="lp-panel-label">Step 2 &middot; Commit Your Prediction</div>
+          <div class="lp-prediction-box">
+            <div class="lp-prediction-q">
+              The team buys 4&times; more GPUs.<br/>What happens to accuracy?
+            </div>
+            <div class="lp-option">
+              <span class="lp-option-radio"></span>
+              Improves ~4&times; (proportional)
+            </div>
+            <div class="lp-option">
+              <span class="lp-option-radio"></span>
+              Improves modestly (~1.3&times;)
+            </div>
+            <div class="lp-option selected">
+              <span class="lp-option-radio"></span>
+              No change &mdash; bottleneck elsewhere
+            </div>
+            <div class="lp-lock-warn">
+              &#x1F512; Simulator locked until you predict
+            </div>
+          </div>
+        </div>
+        <div class="lab-flow-arrow">&rarr;</div>
+        <!-- PANEL 3: Revealed Chart -->
+        <div class="lp-panel lp-reveal">
+          <div class="lp-panel-label">Step 3 &middot; See What Actually Happens</div>
+          <div class="lp-result-callout">
+            <div class="lp-result-icon">&#x2714; Correct</div>
+            <div class="lp-result-text">
+              The bottleneck is <strong>stale data</strong>, not compute.
+              4&times; GPUs at $120K each = $0 accuracy gain.
+            </div>
+          </div>
+          <div class="lp-chart">
+            <div class="lp-chart-title">D-A-M Diagnostic &mdash; ResNet-50</div>
+            <div class="lp-chart-bars">
+              <div class="lp-bar-group">
+                <div class="lp-bar" style="height: 44px; background: #ef4444;"></div>
+                <div class="lp-bar-label">Data</div>
+              </div>
+              <div class="lp-bar-group">
+                <div class="lp-bar" style="height: 22px; background: #2563EB;"></div>
+                <div class="lp-bar-label">Algorithm</div>
+              </div>
+              <div class="lp-bar-group">
+                <div class="lp-bar" style="height: 8px; background: #22c55e;"></div>
+                <div class="lp-bar-label">Machine</div>
+              </div>
+            </div>
+            <div class="lp-chart-legend">
+              <div class="lp-legend-item">
+                <span class="lp-legend-swatch" style="background:#ef4444;"></span> Binding
+              </div>
+              <div class="lp-legend-item">
+                <span class="lp-legend-swatch" style="background:#2563EB;"></span> Adequate
+              </div>
+              <div class="lp-legend-item">
+                <span class="lp-legend-swatch" style="background:#22c55e;"></span> Surplus
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="lp-hud">
+      <span class="lp-hud-label">LAB</span>
+      <span class="lp-hud-value">01 &middot; The AI Triad</span>
+      <span class="lp-hud-sep">|</span>
+      <span class="lp-hud-label">PARTS</span>
+      <span class="lp-hud-value">4 + Synthesis</span>
+      <span class="lp-hud-sep">|</span>
+      <span class="lp-hud-label">STATUS</span>
+      <span class="lp-hud-active">ready</span>
+      <span style="margin-left: auto; color: #64748b; font-weight: 600;">Click anywhere to launch &rarr;</span>
+    </div>
+  </div>
+</a>
+
+<!-- Actions -->
+<div class="action-row">
+  <a href="vol1/lab_01_ml_intro/" class="btn-accent">Launch Lab 01 &rarr;</a>
+  <a href="vol1/lab_00_introduction/" class="btn-outline">Start Orientation</a>
+  <a href="https://github.com/harvard-edge/cs249r_book/discussions" class="btn-outline">Share Feedback</a>
+</div>
+
+</div>
+```
+
+Lab 01 is one instance of a pattern that repeats 34 times. The rest of this page is about the pattern.
+
+## How Labs Work
+
+Each lab is a structured confrontation with a quantitative reality that surprises. The pedagogical design rests on a simple observation: **a student who predicts wrong and then discovers why has learned more than a student who reads a correct answer.** The prediction lock is what makes that possible. You cannot passively watch the simulator; you have to commit first.
+
+### The Predict-Discover-Explain Cycle
+
+Every part within every lab follows the same rhythm:
+
+1. **Stakeholder Scenario**: A fictional but realistic message from a CTO, VP of Engineering, or ML lead frames a real-world problem. These are not toy examples. They are the decisions engineers make every day.
+
+2. **Prediction Lock**: Before seeing any data, you must commit a structured prediction (multiple choice or numeric estimate). The simulator is locked until you predict. This forces you to surface your assumptions.
+
+3. **Interactive Instruments**: Sliders, toggles, and charts powered by the [mlsysim](https://mlsysbook.ai/mlsysim/) physics engine let you explore the design space. Every number traces to a specific textbook claim, with no magic constants.
+
+4. **Prediction Reveal**: The lab shows you what you predicted versus what actually happened, with specific numbers: *"You predicted 2$\times$. Actual: 50$\times$. You were off by 25$\times$."* This gap is the learning moment.
+
+5. **Math Peek**: A collapsible accordion reveals the governing equation. You can always see the physics behind the simulator.
+
+### Structure of Each Lab
+
+```
+Briefing          ~2 min    Learning objectives, prerequisites, core question
+Part A            ~12 min   Calibration --- correct a wrong prior with data
+Part B            ~12 min   Deepening --- quantify the mechanism behind Part A
+Part C            ~12 min   Cross-context --- same system, different hardware
+Part D            ~12 min   Design challenge --- make a decision with trade-offs
+Synthesis         ~5 min    Key takeaways, connections, self-assessment
+```
+
+At least one part includes a **failure state**: push a slider too far and the system crashes (OOM, SLA violation, thermal throttle). These failures are reversible and instructive: the point is to find the boundary, not to punish.
+
+### The Design Ledger
+
+Your predictions and design decisions persist across labs in the **Design Ledger**, a browser-based save system. Lab 08's training memory budget builds on Lab 05's activation analysis, which builds on Lab 01's magnitude calibration. The capstone labs (Lab 16 in each volume) synthesize your full Design Ledger into a portfolio.
+
+## Lab Inventory
+
+### Volume I: Foundations {.volume-heading data-meta="17 labs · single-machine ML systems"}
+
+#### I. Foundations {.cluster-heading data-meta="Labs 00–04"}
+
+```{=html}
+<div class="lab-grid">
+  <a class="lab-card" href="vol1/lab_00_introduction/">
+    <div class="lab-num">00</div>
+    <div class="lab-title">The Architect's Portal</div>
+    <p class="lab-question">How do these labs work? A 5-minute walkthrough of the predict-discover-explain ritual every lab follows.</p>
+  </a>
+  <a class="lab-card" href="vol1/lab_01_ml_intro/">
+    <div class="lab-num">01</div>
+    <div class="lab-title">The AI Triad</div>
+    <p class="lab-question">If a model fails for three different physical reasons on three hardware targets, how do you diagnose which axis to fix?</p>
+  </a>
+  <a class="lab-card" href="vol1/lab_02_ml_systems/">
+    <div class="lab-num">02</div>
+    <div class="lab-title">The Iron Law</div>
+    <p class="lab-question">If you double compute power, why doesn't latency halve?</p>
+  </a>
+  <a class="lab-card" href="vol1/lab_03_ml_workflow/">
+    <div class="lab-num">03</div>
+    <div class="lab-title">The Silent Degradation Loop</div>
+    <p class="lab-question">Why does discovering a constraint at Stage 5 cost 16&times; more than at Stage 1?</p>
+  </a>
+  <a class="lab-card" href="vol1/lab_04_data_engr/">
+    <div class="lab-num">04</div>
+    <div class="lab-title">The Data Gravity Trap</div>
+    <p class="lab-question">When is moving compute to data cheaper than moving data to compute?</p>
+  </a>
+</div>
+```
+
+#### II. Build {.cluster-heading data-meta="Labs 05–08"}
+
+```{=html}
+<div class="lab-grid">
+  <a class="lab-card" href="vol1/lab_05_nn_compute/">
+    <div class="lab-num">05</div>
+    <div class="lab-title">The Activation Tax</div>
+    <p class="lab-question">ReLU and Sigmoid produce similar accuracy, so why does the choice determine whether your model fits in cache?</p>
+  </a>
+  <a class="lab-card" href="vol1/lab_06_nn_arch/">
+    <div class="lab-num">06</div>
+    <div class="lab-title">The Quadratic Wall</div>
+    <p class="lab-question">Why does self-attention cost <em>O(n²)</em> and what does that mean for sequence length?</p>
+  </a>
+  <a class="lab-card" href="vol1/lab_07_ml_frameworks/">
+    <div class="lab-num">07</div>
+    <div class="lab-title">The Kernel Fusion Dividend</div>
+    <p class="lab-question">Why does compiled execution run 17&times; faster than eager mode without changing a single weight?</p>
+  </a>
+  <a class="lab-card" href="vol1/lab_08_model_train/">
+    <div class="lab-num">08</div>
+    <div class="lab-title">The Training Memory Budget</div>
+    <p class="lab-question">Why does a 7B parameter model need 112 GB of memory before storing a single activation?</p>
+  </a>
+</div>
+```
+
+#### III. Optimize {.cluster-heading data-meta="Labs 09–11"}
+
+```{=html}
+<div class="lab-grid">
+  <a class="lab-card" href="vol1/lab_09_data_selection/">
+    <div class="lab-num">09</div>
+    <div class="lab-title">The Data Selection Tradeoff</div>
+    <p class="lab-question">When does curating data produce more accuracy per dollar than adding more data?</p>
+  </a>
+  <a class="lab-card" href="vol1/lab_10_model_compress/">
+    <div class="lab-num">10</div>
+    <div class="lab-title">The Compression Frontier</div>
+    <p class="lab-question">Can you compress a model 4&times; without losing accuracy? Where is the cliff?</p>
+  </a>
+  <a class="lab-card" href="vol1/lab_11_hw_accel/">
+    <div class="lab-num">11</div>
+    <div class="lab-title">The Roofline</div>
+    <p class="lab-question">Is your workload compute-bound or memory-bound, and why does the answer change everything?</p>
+  </a>
+</div>
+```
+
+#### IV. Deploy {.cluster-heading data-meta="Labs 12–14"}
+
+```{=html}
+<div class="lab-grid">
+  <a class="lab-card" href="vol1/lab_12_perf_bench/">
+    <div class="lab-num">12</div>
+    <div class="lab-title">The Speedup Ceiling</div>
+    <p class="lab-question">Amdahl's Law says 5% sequential code limits speedup to 20&times; regardless of parallelism. Is that right?</p>
+  </a>
+  <a class="lab-card" href="vol1/lab_13_model_serving/">
+    <div class="lab-num">13</div>
+    <div class="lab-title">The Tail Latency Trap</div>
+    <p class="lab-question">Your server looks healthy at 50% utilization, so why is it on fire at 80%?</p>
+  </a>
+  <a class="lab-card" href="vol1/lab_14_ml_ops/">
+    <div class="lab-num">14</div>
+    <div class="lab-title">The Silent Degradation Problem</div>
+    <p class="lab-question">Your model shipped Monday. By Friday it lost 3 accuracy points. Your dashboard is green. Why?</p>
+  </a>
+</div>
+```
+
+#### Capstone {.cluster-heading data-meta="Labs 15–16"}
+
+```{=html}
+<div class="lab-grid">
+  <a class="lab-card" href="vol1/lab_15_responsible_engr/">
+    <div class="lab-num">15</div>
+    <div class="lab-title">No Free Fairness</div>
+    <p class="lab-question">Fairness costs accuracy, explanations cost latency, and all of it costs carbon. How do you budget?</p>
+  </a>
+  <a class="lab-card capstone" href="vol1/lab_16_ml_conclusion/">
+    <div class="lab-num">16</div>
+    <div class="lab-title">The Architect's Audit</div>
+    <p class="lab-question">Synthesize every invariant from 15 labs into one deployment decision.</p>
+  </a>
+</div>
+```
+
+### Volume II: At Scale {.volume-heading data-meta="17 labs · distributed ML systems"}
+
+#### I. Foundations {.cluster-heading data-meta="Labs 01–04"}
+
+```{=html}
+<div class="lab-grid">
+  <a class="lab-card" href="vol2/lab_01_introduction/">
+    <div class="lab-num">01</div>
+    <div class="lab-title">The Scale Illusion</div>
+    <p class="lab-question">If you add 10&times; more GPUs, do you get 10&times; more throughput?</p>
+  </a>
+  <a class="lab-card" href="vol2/lab_02_compute_infra/">
+    <div class="lab-num">02</div>
+    <div class="lab-title">The Compute Infrastructure Wall</div>
+    <p class="lab-question">Why does Model FLOPs Utilization rarely exceed 50% on real hardware?</p>
+  </a>
+  <a class="lab-card" href="vol2/lab_03_communication/">
+    <div class="lab-num">03</div>
+    <div class="lab-title">Network Fabric Design</div>
+    <p class="lab-question">When does topology, latency, bandwidth, or bisection become the real system limit?</p>
+  </a>
+  <a class="lab-card" href="vol2/lab_04_data_storage/">
+    <div class="lab-num">04</div>
+    <div class="lab-title">The Data Pipeline Wall</div>
+    <p class="lab-question">Can your storage feed your GPUs fast enough, or are they starving?</p>
+  </a>
+</div>
+```
+
+#### II. Build {.cluster-heading data-meta="Labs 05–08"}
+
+```{=html}
+<div class="lab-grid">
+  <a class="lab-card" href="vol2/lab_05_dist_train/">
+    <div class="lab-num">05</div>
+    <div class="lab-title">The Parallelism Puzzle</div>
+    <p class="lab-question">Data, tensor, or pipeline parallelism, and which fits your model and your cluster?</p>
+  </a>
+  <a class="lab-card" href="vol2/lab_06_collective_communication/">
+    <div class="lab-num">06</div>
+    <div class="lab-title">Collective Communication</div>
+    <p class="lab-question">Which collective algorithm fits your topology, message size, and residual risk?</p>
+  </a>
+  <a class="lab-card" href="vol2/lab_07_fault_tolerance/">
+    <div class="lab-num">07</div>
+    <div class="lab-title">When Failure Is Routine</div>
+    <p class="lab-question">At 10,000 GPUs, what is the probability of zero failures in 24 hours?</p>
+  </a>
+  <a class="lab-card" href="vol2/lab_08_fleet_orch/">
+    <div class="lab-num">08</div>
+    <div class="lab-title">The Scheduling Trap</div>
+    <p class="lab-question">FIFO scheduling wastes 40% of your cluster. Can you do better?</p>
+  </a>
+</div>
+```
+
+#### III. Optimize {.cluster-heading data-meta="Labs 09–11"}
+
+```{=html}
+<div class="lab-grid">
+  <a class="lab-card" href="vol2/lab_09_perf_engineering/">
+    <div class="lab-num">09</div>
+    <div class="lab-title">The Optimization Trap</div>
+    <p class="lab-question">Is the optimization you are about to implement attacking the right bottleneck?</p>
+  </a>
+  <a class="lab-card" href="vol2/lab_10_inference/">
+    <div class="lab-num">10</div>
+    <div class="lab-title">The Inference Economy</div>
+    <p class="lab-question">What fraction of your ML budget is training vs. serving, and why does it flip at scale?</p>
+  </a>
+  <a class="lab-card" href="vol2/lab_11_edge_intelligence/">
+    <div class="lab-num">11</div>
+    <div class="lab-title">The Edge Thermodynamics Lab</div>
+    <p class="lab-question">When does moving inference to the edge save energy vs. waste it?</p>
+  </a>
+</div>
+```
+
+#### IV. Deploy {.cluster-heading data-meta="Labs 12–15"}
+
+```{=html}
+<div class="lab-grid">
+  <a class="lab-card" href="vol2/lab_12_ops_scale/">
+    <div class="lab-num">12</div>
+    <div class="lab-title">The Silent Fleet</div>
+    <p class="lab-question">At 1,000 models, a 24-hour silent failure costs $1M. How do you detect it?</p>
+  </a>
+  <a class="lab-card" href="vol2/lab_13_security_privacy/">
+    <div class="lab-num">13</div>
+    <div class="lab-title">The Price of Privacy</div>
+    <p class="lab-question">Differential privacy adds noise. How much accuracy do you lose for how much privacy?</p>
+  </a>
+  <a class="lab-card" href="vol2/lab_14_robust_ai/">
+    <div class="lab-num">14</div>
+    <div class="lab-title">The Robustness Budget</div>
+    <p class="lab-question">Adversarial training costs 8&times; compute. When is it worth it?</p>
+  </a>
+  <a class="lab-card" href="vol2/lab_15_sustainable_ai/">
+    <div class="lab-num">15</div>
+    <div class="lab-title">The Carbon Budget</div>
+    <p class="lab-question">Moving your training from Iowa to Quebec cuts carbon 10&times;. Why?</p>
+  </a>
+</div>
+```
+
+#### Capstone {.cluster-heading data-meta="Labs 16–17"}
+
+```{=html}
+<div class="lab-grid">
+  <a class="lab-card" href="vol2/lab_16_responsible_ai/">
+    <div class="lab-num">16</div>
+    <div class="lab-title">The Fairness Budget</div>
+    <p class="lab-question">How do you allocate a finite fairness budget across competing metrics?</p>
+  </a>
+  <a class="lab-card capstone" href="vol2/lab_17_fleet_synthesis/">
+    <div class="lab-num">17</div>
+    <div class="lab-title">The Fleet Synthesis</div>
+    <p class="lab-question">Design a production fleet balancing cost, latency, fairness, and carbon.</p>
+  </a>
+</div>
+```
+## Run Offline
+
+```{=html}
+<div class="install-section">
+  <h3>Optional: Run Offline</h3>
+  <p>Already running in your browser &mdash; nothing to install. Power users who want offline access or want to hack the simulations can optionally grab the package:</p>
+  <pre><code>python3 -m pip install -r labs/requirements.txt
+python3 -m pip install -e mlsysim
+cd labs
+marimo run vol1/lab_01_ml_intro.py</code></pre>
+</div>
+```
+
+{{< include ../shared/config/_ecosystem-cards.qmd >}}
+
+:::

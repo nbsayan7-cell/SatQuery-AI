@@ -1,0 +1,1 @@
+- Fix idempotency fingerprints so Responses API requests include `input` and other semantic generation fields using stable serialization, while excluding credentials and request metadata.

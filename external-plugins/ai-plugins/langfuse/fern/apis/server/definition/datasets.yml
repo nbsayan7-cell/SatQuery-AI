@@ -1,0 +1,101 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/fern-api/fern/main/fern.schema.json
+imports:
+  commons: ./commons.yml
+  pagination: ./utils/pagination.yml
+service:
+  auth: true
+  base-path: /api/public
+  endpoints:
+    list:
+      method: GET
+      docs: Get all datasets
+      path: /v2/datasets
+      request:
+        name: GetDatasetsRequest
+        query-parameters:
+          page:
+            type: optional<integer>
+            docs: page number, starts at 1
+          limit:
+            type: optional<integer>
+            docs: limit of items per page
+      response: PaginatedDatasets
+    get:
+      method: GET
+      docs: Get a dataset
+      path: /v2/datasets/{datasetName}
+      path-parameters:
+        datasetName: string
+      response: commons.Dataset
+    create:
+      method: POST
+      docs: Create a dataset
+      path: /v2/datasets
+      request: CreateDatasetRequest
+      response: commons.Dataset
+    getRun:
+      availability:
+        status: deprecated
+        message: "On Langfuse Cloud, Langfuse v3 is deprecated and this endpoint will be removed on November 16, 2026. In Langfuse v4, dataset runs are replaced by experiments; use GET /api/public/experiments instead. Self-hosted deployments are unaffected by this date; the endpoint becomes unavailable when they upgrade to Langfuse v4."
+      method: GET
+      docs: Get a dataset run and its items
+      path: /datasets/{datasetName}/runs/{runName}
+      path-parameters:
+        datasetName: string
+        runName: string
+      response: commons.DatasetRunWithItems
+    deleteRun:
+      availability:
+        status: deprecated
+        message: "On Langfuse Cloud, Langfuse v3 is deprecated and this endpoint will be removed on November 16, 2026. In Langfuse v4, dataset runs are replaced by experiments. Self-hosted deployments are unaffected by this date; the endpoint becomes unavailable when they upgrade to Langfuse v4."
+      method: DELETE
+      docs: Delete a dataset run and all its run items. This action is irreversible.
+      path: /datasets/{datasetName}/runs/{runName}
+      path-parameters:
+        datasetName: string
+        runName: string
+      response: DeleteDatasetRunResponse
+    getRuns:
+      availability:
+        status: deprecated
+        message: "On Langfuse Cloud, Langfuse v3 is deprecated and this endpoint will be removed on November 16, 2026. In Langfuse v4, dataset runs are replaced by experiments; use GET /api/public/experiments instead. Self-hosted deployments are unaffected by this date; the endpoint becomes unavailable when they upgrade to Langfuse v4."
+      method: GET
+      docs: Get dataset runs
+      path: /datasets/{datasetName}/runs
+      path-parameters:
+        datasetName: string
+      request:
+        name: GetDatasetRunsRequest
+        query-parameters:
+          page:
+            type: optional<integer>
+            docs: page number, starts at 1
+          limit:
+            type: optional<integer>
+            docs: limit of items per page
+      response: PaginatedDatasetRuns
+
+types:
+  PaginatedDatasets:
+    properties:
+      data: list<commons.Dataset>
+      meta: pagination.MetaResponse
+  CreateDatasetRequest:
+    properties:
+      name: string
+      description: optional<string>
+      metadata: optional<unknown>
+      inputSchema:
+        type: optional<unknown>
+        docs: JSON Schema for validating dataset item inputs. When set, all new and existing dataset items will be validated against this schema.
+      expectedOutputSchema:
+        type: optional<unknown>
+        docs: JSON Schema for validating dataset item expected outputs. When set, all new and existing dataset items will be validated against this schema.
+  PaginatedDatasetRuns:
+    properties:
+      data: list<commons.DatasetRun>
+      meta: pagination.MetaResponse
+      _deprecation: optional<commons.Deprecation>
+  DeleteDatasetRunResponse:
+    properties:
+      message: string

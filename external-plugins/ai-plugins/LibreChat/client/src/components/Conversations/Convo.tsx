@@ -1,0 +1,284 @@
+import React, { memo, useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useRecoilValue } from 'recoil';
+import { Link2, Pin } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import { Constants } from 'librechat-data-provider';
+import { Spinner, useToastContext, useMediaQuery } from '@librechat/client';
+import type { TConversation } from 'librechat-data-provider';
+import { useGetStartupConfig, useUpdateConversationMutation } from '~/data-provider';
+import { useNavigateToConvo, useLocalize, useShiftKey } from '~/hooks';
+import ConversationEndpointIcon from './ConversationEndpointIcon';
+import { areConversationRenderPropsEqual } from './utils';
+import { cn, logger, setDocumentTitle } from '~/utils';
+import { NotificationSeverity } from '~/common';
+import ConvoActions from './ConvoActions';
+import RenameForm from './RenameForm';
+import ConvoLink from './ConvoLink';
+import store from '~/store';
+
+interface ConversationProps {
+  conversation: TConversation;
+  retainView: () => void;
+  toggleNav: (afterSlide?: () => void) => void;
+  isGenerating?: boolean;
+}
+
+function Conversation({
+  conversation,
+  retainView,
+  toggleNav,
+  isGenerating = false,
+}: ConversationProps) {
+  const params = useParams();
+  const localize = useLocalize();
+  const { showToast } = useToastContext();
+  const { navigateToConvo } = useNavigateToConvo();
+  const currentConvoId = useMemo(() => params.conversationId, [params.conversationId]);
+  const updateConvoMutation = useUpdateConversationMutation(currentConvoId ?? '');
+  const activeConvos = useRecoilValue(store.allConversationsSelector);
+  const isSmallScreen = useMediaQuery('(max-width: 768px)');
+  /* A deployment with shared links off leaves existing links in the database but stops
+     serving them, so the row must not advertise one that no longer resolves. */
+  const { data: startupConfig } = useGetStartupConfig();
+  const sharedLinksEnabled = startupConfig?.sharedLinksEnabled === true;
+  const isSharedBadgeVisible = conversation.isShared === true && sharedLinksEnabled;
+  const isShiftHeld = useShiftKey();
+  const { conversationId, title = '' } = conversation;
+
+  const [titleInput, setTitleInput] = useState(title || '');
+  const [renaming, setRenaming] = useState(false);
+  const [isPopoverActive, setIsPopoverActive] = useState(false);
+  // Lazy-load ConvoOptions to avoid running heavy hooks for all conversations
+  const [hasInteracted, setHasInteracted] = useState(false);
+
+  const previousTitle = useRef(title);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (title !== previousTitle.current) {
+      setTitleInput(title as string);
+      previousTitle.current = title;
+    }
+  }, [title]);
+
+  const isActiveConvo = useMemo(() => {
+    if (conversationId === Constants.NEW_CONVO) {
+      return currentConvoId === Constants.NEW_CONVO;
+    }
+
+    if (currentConvoId !== Constants.NEW_CONVO) {
+      return currentConvoId === conversationId;
+    } else {
+      const latestConvo = activeConvos?.[0];
+      return latestConvo === conversationId;
+    }
+  }, [currentConvoId, conversationId, activeConvos]);
+
+  const handleRename = () => {
+    setIsPopoverActive(false);
+    setTitleInput(title as string);
+    setRenaming(true);
+  };
+
+  const handleRenameSubmit = async (newTitle: string) => {
+    if (!conversationId || newTitle === title) {
+      setRenaming(false);
+      return;
+    }
+
+    try {
+      await updateConvoMutation.mutateAsync({
+        conversationId,
+        title: newTitle.trim() || localize('com_ui_untitled'),
+      });
+      setRenaming(false);
+    } catch (error) {
+      logger.error('Error renaming conversation', error);
+      setTitleInput(title as string);
+      showToast({
+        message: localize('com_ui_rename_failed'),
+        severity: NotificationSeverity.ERROR,
+        showIcon: true,
+      });
+      setRenaming(false);
+    }
+  };
+
+  const handleCancelRename = () => {
+    setTitleInput(title as string);
+    setRenaming(false);
+  };
+
+  const handleMouseEnter = useCallback(() => {
+    if (!hasInteracted) {
+      setHasInteracted(true);
+    }
+  }, [hasInteracted]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (!isPopoverActive) {
+      setHasInteracted(false);
+    }
+  }, [isPopoverActive]);
+
+  const handleBlur = useCallback(
+    (e: React.FocusEvent<HTMLDivElement>) => {
+      // Don't reset if focus is moving to a child element within this container
+      if (e.currentTarget.contains(e.relatedTarget as Node)) {
+        return;
+      }
+      if (!isPopoverActive) {
+        setHasInteracted(false);
+      }
+    },
+    [isPopoverActive],
+  );
+
+  const handlePopoverOpenChange = useCallback((open: boolean) => {
+    setIsPopoverActive(open);
+    if (!open) {
+      requestAnimationFrame(() => {
+        const container = containerRef.current;
+        if (container && !container.contains(document.activeElement)) {
+          setHasInteracted(false);
+        }
+      });
+    }
+  }, []);
+
+  const handleNavigation = (ctrlOrMetaKey: boolean) => {
+    if (ctrlOrMetaKey && !isGenerating) {
+      toggleNav();
+      const baseUrl = window.location.origin;
+      const path = `/c/${conversationId}`;
+      window.open(baseUrl + path, '_blank');
+      return;
+    }
+
+    if (currentConvoId === conversationId || isPopoverActive) {
+      return;
+    }
+
+    /** The navigation rides `afterSlide`: run synchronously it flushes the
+     * conversation-switch commit in the tap's task, stalling the drawer's
+     * first frame — the exact delay the animated toggle exists to avoid. */
+    toggleNav(() => {
+      setDocumentTitle(title);
+
+      navigateToConvo(conversation, {
+        currentConvoId,
+      });
+    });
+  };
+
+  const convoOptionsProps = {
+    title,
+    isPinned: conversation.pinned,
+    retainView,
+    renameHandler: handleRename,
+    isActiveConvo,
+    conversationId,
+    chatProjectId: conversation.chatProjectId,
+    isPopoverActive,
+    onOpenChange: handlePopoverOpenChange,
+    isShiftHeld: isActiveConvo ? isShiftHeld : false,
+  };
+
+  const generatingSpinner = (
+    <span role="img" aria-label={localize('com_ui_generating')}>
+      <Spinner className="h-5 w-5 flex-shrink-0 text-text-primary" />
+    </span>
+  );
+
+  let actionVisibilityClassName =
+    'pointer-events-none max-w-0 scale-x-0 opacity-0 group-focus-within:pointer-events-auto group-focus-within:max-w-[60px] group-focus-within:scale-x-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:max-w-[60px] group-hover:scale-x-100 group-hover:opacity-100';
+  if (isGenerating) {
+    actionVisibilityClassName = 'pointer-events-none w-5 scale-x-100 opacity-100';
+  } else if (isPopoverActive || isActiveConvo || isSmallScreen) {
+    /** Touch has no hover, so a reveal-on-hover menu is unreachable there. */
+    actionVisibilityClassName = 'pointer-events-auto scale-x-100 opacity-100';
+  }
+
+  let actionWidthClassName = '';
+  if (!isGenerating && !isPopoverActive && isActiveConvo && isShiftHeld) {
+    actionWidthClassName = 'max-w-[60px]';
+  } else if (!isGenerating) {
+    actionWidthClassName = isSmallScreen ? 'max-w-[36px]' : 'max-w-[28px]';
+  }
+
+  let actionContent: React.ReactNode = null;
+  if (isGenerating) {
+    actionContent = generatingSpinner;
+  } else if (!renaming) {
+    actionContent = <ConvoActions {...convoOptionsProps} hasInteracted={hasInteracted} />;
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className={cn(
+        'group relative flex h-12 w-full items-center rounded-lg outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-text-primary md:h-9',
+        isActiveConvo || isPopoverActive
+          ? 'bg-surface-active-alt before:absolute before:bottom-1 before:left-0 before:top-1 before:w-0.5 before:rounded-full before:bg-text-primary'
+          : 'hover:bg-surface-active-alt',
+      )}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onFocus={handleMouseEnter}
+      onBlur={handleBlur}
+      onClick={(e) => {
+        if (renaming) {
+          return;
+        }
+        if (e.button === 0) {
+          handleNavigation(e.ctrlKey || e.metaKey);
+        }
+      }}
+      style={{ cursor: renaming ? 'default' : 'pointer' }}
+      data-testid="convo-item"
+    >
+      {renaming ? (
+        <RenameForm
+          titleInput={titleInput}
+          setTitleInput={setTitleInput}
+          onSubmit={handleRenameSubmit}
+          onCancel={handleCancelRename}
+          localize={localize}
+        />
+      ) : (
+        <ConvoLink
+          isActiveConvo={isActiveConvo}
+          isPopoverActive={isPopoverActive}
+          isSharedBadgeVisible={isSharedBadgeVisible}
+          title={title}
+          onRename={handleRename}
+          isSmallScreen={isSmallScreen}
+          localize={localize}
+        >
+          <ConversationEndpointIcon conversation={conversation} size={20} context="menu-item" />
+        </ConvoLink>
+      )}
+      {isSharedBadgeVisible && (
+        <Link2 className="icon-sm mr-1 shrink-0 text-text-secondary" aria-hidden="true" />
+      )}
+      {conversation.pinned === true && (
+        <Pin className="icon-sm mr-1 shrink-0 text-text-primary" aria-hidden="true" />
+      )}
+      <div
+        className={cn(
+          'mr-2 flex origin-left items-center justify-center',
+          actionVisibilityClassName,
+          actionWidthClassName,
+        )}
+        // Removing aria-hidden to fix accessibility issue: ARIA hidden element must not be focusable or contain focusable elements
+        // but not sure what its original purpose was, so leaving the property commented out until it can be cleared safe to delete.
+        // aria-hidden={!(isPopoverActive || isActiveConvo)}
+      >
+        {/* Only render ConvoOptions when user interacts (hover/focus) or for active conversation */}
+        {actionContent}
+      </div>
+    </div>
+  );
+}
+
+export default memo(Conversation, areConversationRenderPropsEqual);

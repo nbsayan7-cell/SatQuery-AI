@@ -1,0 +1,1 @@
+- **build(bun):** allow Turbopack bundler flag on Bun 1.4+ with configurable Webpack fallback ([#11471](https://github.com/diegosouzapw/OmniRoute/pull/11471)) — thanks @TheDemonTuan

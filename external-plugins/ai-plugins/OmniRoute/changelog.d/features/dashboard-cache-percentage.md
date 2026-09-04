@@ -1,0 +1,1 @@
+- **feat(dashboard):** display clamped `[0, 100]%` cached input token ratio in request logs table ([#PR_NUMBER](https://github.com/diegosouzapw/OmniRoute/pull/PR_NUMBER))

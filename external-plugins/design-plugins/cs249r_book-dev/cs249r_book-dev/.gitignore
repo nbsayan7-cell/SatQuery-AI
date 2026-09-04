@@ -1,0 +1,437 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+!book/quarto/contents/*/parts/
+sdist/
+var/
+# Labs ship a pinned mlsysim wheel for Pyodide; ignore other wheel drops here.
+wheels/*
+!wheels/mlsysim-0.1.1-py3-none-any.whl
+!wheels/mlsysim-0.1.2-py3-none-any.whl
+!wheels/mlsysbook_labs-0.1.0-py3-none-any.whl
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+bin/
+!site/newsletter/bin/
+include/
+lib/
+lib64/
+pyvenv.cfg
+share/
+# Prevent duplicate venvs in subdirectories
+site/.venv/
+**/.venv/
+**/venv/
+**/env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Book / Quarto build artifacts
+book/_build/
+book/quarto/_build/
+book/quarto/_output/
+book/quarto/_quarto.yml
+# The `binder` CLI may create book/quarto/index.qmd as a transient symlink
+# to contents/volX/index.qmd. That file must never be committed: Quarto's
+# website auto-discovery picks it up and silently overrides the per-volume
+# landing in index-volX.qmd, causing the Vol1 build to deploy Vol2 content.
+book/quarto/index.qmd
+book/quarto/**/*.html
+book/quarto/**/._*_xref.json
+book/quarto/**/*_files/
+book/quarto/**/*.backup.*
+book/quarto/*_figures.txt
+# Quarto auxiliary figure dirs for the TinyTorch Quarto site — the
+# website project renders through the .qmd files once and leaves
+# `<stem>_files/` caches next to each source. They're regenerated on
+# demand and confuse the sibling PDF book project's cleanup step.
+tinytorch/quarto/**/*_files/
+physical/**/*_files/
+physical/**/_build/
+docs/_build/
+
+# NBGrader - only ignore generated outputs, not source/release
+assignments/autograded/
+assignments/feedback/
+assignments/submitted/
+
+# Logs
+*.log
+book/tools/scripts/testing/logs/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+*.pdf
+# Callout icon PDFs needed for PDF builds (and parallel worktree builds)
+!book/quarto/assets/images/icons/callouts/*.pdf
+# MLSys·im docs: tutorial slide PDFs are committed; mlsysim-paper.pdf is built by
+# CI (mlsysim-publish-live.yml cp's pdf-artifacts/paper.pdf into place at deploy).
+!mlsysim/docs/tutorial_module*.pdf
+# StaffML paper: figure PDFs shipped from SVG / generate_figures (not the compiled paper)
+!interviews/paper/fig-*.pdf
+!interviews/paper/figures/fig-*.pdf
+# Periodic Table paper + figures: build outputs. Figure PDFs regenerate from SVG via
+# the per-paper Makefile (comment in mlsysim/paper/Makefile: "a stale committed PDF
+# cannot mask a freshly edited SVG").
+periodic-table/paper/paper.pdf
+
+# Database
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db
+.envrc
+
+# Temporary files
+*.tmp
+*.temp
+
+# Binary design sources
+*.ai
+
+# Backup files
+*.bak
+*.backup
+
+# Misc. configurations
+.claude
+.claude/
+.cursor
+.cursor/
+.cursor~HEAD
+.gemini
+.gemini/
+.ai/
+
+# MLSysBook extension working directories (worktrees, reports, logs)
+.mlsysbook/
+
+# Binder layout diagnostics (PDF/table contact sheets and generated QMD)
+book/.layout/
+book/quarto/.layout/
+
+# Project specific
+tito-cli.log
+COMMIT_LOG.txt
+
+# Tito CLI user state and cache (local to each user)
+.tito/
+
+# Downloaded datasets (not source-controlled, too large)
+/data/
+datasets/
+milestones/datasets/
+
+# BUT: Include TinyTorch's curated educational datasets (tiny, ship-with-repo)
+!datasets/tinydigits/
+!datasets/tinytalks/
+!datasets/tinymnist/
+!datasets/README.md
+!datasets/DATASET_ANALYSIS.md
+!mlsysim/mlsysim/datasets/
+
+# BUT: Include StaffML app source directories
+!interviews/staffml/src/data/
+!interviews/staffml/src/lib/
+
+# Temporary generated files
+progress.json
+**/VERIFY_*.py
+**/NEW_CITATIONS.bib
+**/proposed_figures.tex
+
+# Generated notebooks (built from src/*.py source files)
+# The modules/ directory contains generated notebooks for learners
+modules/*
+!modules/README.md
+
+# Generated website module docs (copied from src/*/ABOUT.md during build)
+# Single source of truth: src/*/ABOUT.md
+docs/modules/*
+docs/chapters/modules/*
+
+# Site build artifacts
+site/_build/
+
+# Generated tinytorch package (auto-generated from src/ via nbdev_export)
+# Single source of truth: src/*/*.py files
+tinytorch/tinytorch/*
+!tinytorch/tinytorch/README.md
+
+# Generated benchmark outputs
+.tito/benchmarks/
+
+# Misc. generated files
+/.luarc.json
+book/quarto/index.idx
+book/quarto/index.ilg
+book/quarto/index.ind
+CLAUDE.md
+
+# Newsletter drafts: tracked in git on feature branches, but `draft: true` in
+# frontmatter keeps them invisible in the rendered site listing. Drafts should
+# live on feature branches and only merge to dev when moved to posts/.
+
+/.quarto/
+**/*.quarto_ipynb
+
+# Quarto / mlsysim rendered site output
+_build/
+mlsysim/docs/assets/
+mlsysim/docs/site_libs/
+mlsysim/docs/**/*.html
+
+# mlsysim scratch / test plans
+mlsysim/test_*.yaml
+mlsysim/check_*.py
+# Local uv lockfile; CI uses pip from pyproject.toml, not `uv sync --locked`
+mlsysim/uv.lock
+
+# Marimo session state (local to each user)
+**/__marimo__/session/
+
+# Slides Quarto build cache
+slides/.quarto/
+
+# Internal planning docs, review notes, and AI prompts (not public)
+labs/plans/
+site/newsletter/CONTENT_PLAN.md
+
+# Session handoff / resume artifacts. These capture local worktree paths,
+# branch state, and assistant-session scaffolding, none of which belongs in a
+# public repo. Keep working state out of the tree; durable design docs get a
+# real name and no session header.
+*_HANDOFF.md
+*_RESUME*.md
+CLAUDE_RESUME*.md
+*_TASKS.md
+*_todo.md
+
+# Release-review working tree: tracking docs, manifests, prompts, and
+# per-pass output dirs from the multi-pass release audit. Local-only.
+/review/
+
+# Auto-regenerated on every `news pull` / publish-live render. Tracking it
+# in git would create cherry-pick conflicts every time it drifts (subscriber
+# count, issue count) without adding any signal — pull.py rewrites it from
+# scratch each run.
+site/newsletter/_stats.yml
+mlsysim/core/optimization/PLAN.md
+book/quarto/contents/vol1/REVIEW_NOTES.md
+book/quarto/contents/vol2/context_notes.md
+book/tools/review_prompts.md
+book/tools/scripts/figure_narrative_audit.md
+book/tools/scripts/tbl_lst_narrative_audit.md
+
+# One-off scripts in repo root
+/fix_*.py
+/apply_*.py
+/test_*.py
+/find_*.py
+/generate_*.py
+/check_*.py
+/cut_*.py
+/sharpen_*.py
+
+# Generation logs (from quiz/question generation scripts)
+generation_log*.txt
+
+# PID files
+flash_pid.txt
+*.pid
+
+# Resized image thumbnails (generated by build scripts)
+*.resized
+
+# Generated reports and state snapshots
+# Default output from book/tools/audit/scan.py (repo root)
+/audit-ledger.json
+book/tools/baseline_state.json
+book/tools/scripts/reference_check_report.txt
+
+# Timestamped audit run output — regenerated on demand, never committed
+book/tools/audit/out/
+# Audit-ledger output (regenerated by `binder check` runs)
+book/tools/audit/audit-ledger-*.json
+
+# Stray patch.py files at repo root (from one-off bib fix runs)
+/patch.py
+
+# TinyTorch user-local config
+tinytorch/.tinytorch/
+
+# Next.js
+.next/
+node_modules/
+
+# LaTeX layout preview rasterizations (regenerate with pdftoppm)
+interviews/paper/layout-review/
+
+# Local PDF page exports for layout review (not part of the LaTeX source)
+interviews/paper/page-*.png
+
+# StaffML paper: LaTeX/BibTeX outputs (rebuild with make paper or pdflatex + bibtex)
+# (Global *.aux / *.log / *.pdf also apply; listed here so intent is obvious.)
+interviews/paper/paper.pdf
+interviews/paper/paper.aux
+interviews/paper/paper.log
+interviews/paper/paper.out
+interviews/paper/paper.bbl
+interviews/paper/paper.blg
+
+# Debug dump from SVG parsing experiments
+interviews/paper/svg_structure.txt
+
+# Output dirs from release-prep audit scripts and SVG audit artefacts (ephemeral, not committed)
+/.audit/
+/_audit/
+
+# Editorial audit reports (internal scratch; not committed to the book repo)
+book/quarto/audits/
+
+# Math-rendering audit artifacts (tools/audit/*.py); regenerated on demand
+/audit-math-report.json
+/audit-math-report.md
+/audit-pdf-report.json
+/audit-pdf-report.md
+/audit-pdf-spot-check.md
+/audit-pdf-output/
+
+# StaffML corpus.json — build artifact regenerated from YAML by
+# `vault build --local-json`. Kept locally for offline development
+# and static-export deploys; production uses the Cloudflare D1 worker.
+# Pre-commit / CI workflows generate it on demand; not tracked in repo.
+interviews/vault/corpus.json
+interviews/staffml/src/data/corpus.json
+
+# SocratiQ bundle — build artefact produced by `socratiq/` Vite build
+# (`npm --prefix socratiq run build:vite`), which copies the output into
+# `book/quarto/tools/scripts/socratiQ/bundle.js`. The mirror at
+# `book/tools/scripts/socratiQ/bundle.js` is a symlink to that file. The
+# bundle is ~7 MB and has accumulated ~57 MB across 7 historical versions.
+# Going forward, the bundle should be regenerated rather than re-committed.
+# (This rule does NOT untrack the existing tracked bundle.js — that cleanup
+# is a separate, coordinated change. It only stops *new* drops from being
+# added by accident.)
+book/quarto/tools/scripts/socratiQ/bundle.js
+book/tools/scripts/socratiQ/bundle.js
+# Generic bundle.js anywhere under scripts/ai_menu/dist/ (legacy build path
+# from issue #1175 — no longer in HEAD but defensively excluded).
+scripts/ai_menu/dist/bundle.js
+scripts/ai_menu/dist/*.bundle.js
+
+# vault-cli check output — dump from `vault check` runs, regenerated on demand
+interviews/vault-cli/check_results.json
+
+# Math/sub-agent audit reports — ephemeral, not committed
+/audit/
+
+# Generated dataset CSV — not committed; regenerated locally during chapter work.
+# Has slipped into staging via `git add vol1/` multiple times; explicit ignore
+# prevents recurrence.
+all_ai_models.csv
+book/quarto/contents/vol1/nn_computation/all_ai_models.csv
+book/quarto/all_ai_models.csv
+book/quarto/data/all_ai_models.csv
+
+# Fmt / notation audit scratch outputs (one-off queues; summarize in docs)
+book/tools/audit/fmt/*_adjudication_queue.txt
+/build_log.txt
+/scripts/converge_precision.py
+/scripts/debug_precision.py
+/scripts/fix_ml_systems.py
+/scripts/refine_ml_systems.py
+/scripts/remove_allow_zero.py
+/scripts/remove_drop_zero_robust.py
+/scripts/restore_precision.py
+/scripts/surgical_fix_ml_systems.py
+/scripts/test_ml_systems_values.py
+/scripts/unblock_build.py
+
+# Campaign/audit ledgers live in .claude/_reviews/ (gitignored), not the repo root.
+AUDIT_FINDINGS.md
+
+# Ephemeral scratch directories
+scratch/
+**/scratch/
+books/*/scratch/
+
+# Quarto generated site_libs and html in docs
+site_libs/
+**/site_libs/
+packages/*/docs/*.html
+packages/*/docs/**/*.html
+packages/*/docs/**/*_files/

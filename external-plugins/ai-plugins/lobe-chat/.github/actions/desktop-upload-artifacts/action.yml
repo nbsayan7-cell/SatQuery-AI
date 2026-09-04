@@ -1,0 +1,95 @@
+name: Desktop Upload Artifacts
+description: Rename macOS yml for multi-arch and upload build artifacts
+
+inputs:
+  artifact-name:
+    description: Name for the uploaded artifact
+    required: true
+  retention-days:
+    description: Number of days to retain artifacts
+    required: false
+    default: '5'
+  renderer-ota-public-key:
+    description: Public key embedded in the packaged binary
+    required: true
+  renderer-ota-private-key:
+    description: Private key used to sign the r0 renderer OTA baseline
+    required: false
+    default: ''
+  update-channel:
+    description: Desktop update channel (canary, beta, stable)
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Validate renderer OTA base hash
+      shell: bash
+      run: |
+        set -euo pipefail
+        MAIN_HASH=$(cat apps/desktop/release/renderer-mainhash.txt)
+        if [[ ! "$MAIN_HASH" =~ ^[0-9a-f]{64}$ ]]; then
+          echo "Invalid renderer OTA main bundle hash"
+          exit 1
+        fi
+
+    - name: Sign renderer OTA r0 baseline
+      if: runner.os == 'Linux' && inputs.renderer-ota-private-key != '' && inputs.update-channel != ''
+      shell: bash
+      env:
+        RENDERER_OTA_PRIVATE_KEY: ${{ inputs.renderer-ota-private-key }}
+        RENDERER_OTA_PUBLIC_KEY: ${{ inputs.renderer-ota-public-key }}
+      run: |
+        set -euo pipefail
+        MAIN_HASH=$(cat apps/desktop/release/renderer-mainhash.txt)
+        node apps/desktop/scripts/buildRendererManifest.mjs \
+          --renderer=apps/desktop/dist/renderer \
+          --out=apps/desktop/release/renderer-ota \
+          --channel=${{ inputs.update-channel }} \
+          --version=r0 \
+          --mainHash="$MAIN_HASH"
+
+    - name: Rename macOS *-mac.yml for multi-architecture support
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        cd apps/desktop/release
+        SYSTEM_ARCH=$(uname -m)
+        if [[ "$SYSTEM_ARCH" == "arm64" ]]; then
+          ARCH_SUFFIX="arm64"
+        else
+          ARCH_SUFFIX="x64"
+        fi
+        for yml in *-mac.yml; do
+          if [ -f "$yml" ]; then
+            new_name="${yml%.yml}-${ARCH_SUFFIX}.yml"
+            mv "$yml" "$new_name"
+            echo "✅ Renamed $yml to $new_name"
+          fi
+        done
+
+    - name: List yml files before upload
+      shell: bash
+      run: |
+        echo "📋 YML files to upload:"
+        ls -la apps/desktop/release/*.yml 2>/dev/null || echo "   ⚠️ No yml files found!"
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v6
+      with:
+        name: ${{ inputs.artifact-name }}
+        if-no-files-found: warn
+        path: |
+          apps/desktop/release/*.yml
+          apps/desktop/release/*.dmg*
+          apps/desktop/release/*.zip*
+          apps/desktop/release/*.exe*
+          apps/desktop/release/*.AppImage
+          apps/desktop/release/*.deb*
+          apps/desktop/release/*.snap*
+          apps/desktop/release/*.rpm*
+          apps/desktop/release/*.tar.gz*
+          apps/desktop/release/renderer-mainhash.txt
+          apps/desktop/release/renderer-ota
+        retention-days: ${{ inputs.retention-days }}

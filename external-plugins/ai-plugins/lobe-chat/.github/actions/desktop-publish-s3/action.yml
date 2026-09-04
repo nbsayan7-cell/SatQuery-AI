@@ -1,0 +1,202 @@
+name: Desktop Publish to S3
+description: Upload desktop release artifacts to S3 update server
+
+inputs:
+  channel:
+    description: 'Update channel (stable, canary, nightly)'
+    required: true
+  version:
+    description: 'Release version (e.g., 2.1.29-canary.1)'
+    required: true
+  cloud-ref:
+    description: 'Cloud repository commit used by the packaged binaries'
+    required: true
+  aws-access-key-id:
+    description: 'AWS access key ID'
+    required: true
+  aws-secret-access-key:
+    description: 'AWS secret access key'
+    required: true
+  s3-bucket:
+    description: 'S3 bucket name'
+    required: true
+  s3-region:
+    description: 'S3 region (defaults to us-east-1)'
+    required: false
+    default: 'us-east-1'
+  s3-endpoint:
+    description: 'Custom S3 endpoint (for R2/MinIO etc.)'
+    required: false
+    default: ''
+  upload-release-files:
+    description: Upload installers and electron-updater manifests
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Download merged artifacts
+      uses: actions/download-artifact@v7
+      with:
+        name: merged-release
+        path: release
+
+    - name: List artifacts to upload
+      shell: bash
+      run: |
+        echo "📦 Artifacts to upload to S3:"
+        ls -lah release/
+        echo ""
+        echo "📋 YML files in release/:"
+        ls -la release/*.yml 2>/dev/null || echo "   ⚠️ No yml files found!"
+        echo ""
+        echo "📋 Version: ${{ inputs.version }}, Channel: ${{ inputs.channel }}"
+
+    - name: Upload to S3
+      if: inputs.upload-release-files == 'true'
+      shell: bash
+      env:
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
+        AWS_REGION: ${{ inputs.s3-region }}
+        S3_BUCKET: ${{ inputs.s3-bucket }}
+        S3_ENDPOINT: ${{ inputs.s3-endpoint }}
+        CHANNEL: ${{ inputs.channel }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        if [ -z "$S3_BUCKET" ]; then
+          echo "⚠️ S3 bucket is not configured, skipping S3 upload"
+          exit 0
+        fi
+
+        # 构建端点参数
+        ENDPOINT_ARG=""
+        if [ -n "$S3_ENDPOINT" ]; then
+          ENDPOINT_ARG="--endpoint-url $S3_ENDPOINT"
+          echo "📡 Using custom S3 endpoint: $S3_ENDPOINT"
+        fi
+
+        echo "🚀 Uploading to S3 bucket: $S3_BUCKET"
+        echo "📁 Target path: s3://$S3_BUCKET/$CHANNEL/"
+        echo ""
+
+        # 1. 上传安装包到版本目录
+        echo "📦 Uploading release files to s3://$S3_BUCKET/$CHANNEL/$VERSION/"
+        for file in release/*.dmg release/*.zip release/*.exe release/*.AppImage release/*.deb release/*.rpm release/*.snap release/*.tar.gz release/*.blockmap; do
+          if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            echo "   ↗️ $filename"
+            aws s3 cp "$file" "s3://$S3_BUCKET/$CHANNEL/$VERSION/$filename" $ENDPOINT_ARG
+          fi
+        done
+
+        # 2. stable 渠道补充 stable*.yml
+        # electron-builder 对稳定版默认生成 latest*.yml
+        echo ""
+        if [ "$CHANNEL" = "stable" ]; then
+          echo "📋 Creating stable*.yml from latest*.yml..."
+          for yml in release/latest*.yml; do
+            if [ -f "$yml" ]; then
+              stable_yml=$(basename "$yml" | sed 's/^latest/stable/')
+              cp "$yml" "release/$stable_yml"
+              echo "   📄 Created $stable_yml from $(basename "$yml")"
+            fi
+          done
+        fi
+
+        # 3. 为所有 yml manifest 的 URL 加版本目录前缀
+        # merge-mac-files 步骤已生成 {channel}*.yml (如 canary-mac.yml)
+        # 安装包在 s3://$BUCKET/$CHANNEL/$VERSION/ 下，URL 需加 $VERSION/ 前缀
+        echo ""
+        echo "📋 Adding version prefix to yml manifest URLs..."
+        for yml in release/${CHANNEL}*.yml release/latest*.yml; do
+          if [ -f "$yml" ]; then
+            sed -i "s|url: |url: $VERSION/|g" "$yml"
+            echo "   📄 Updated $(basename $yml) with URL prefix: $VERSION/"
+          fi
+        done
+
+        # 4. 上传 installer manifest 到根目录和版本目录
+        # 根目录: electron-updater 需要，每次发版覆盖
+        # 版本目录: 作为存档保留
+        echo ""
+        echo "📋 Uploading manifest files..."
+        for yml in release/${CHANNEL}*.yml release/latest*.yml; do
+          if [ -f "$yml" ]; then
+            filename=$(basename "$yml")
+            echo "   ↗️ $filename -> s3://$S3_BUCKET/$CHANNEL/$filename"
+            aws s3 cp "$yml" "s3://$S3_BUCKET/$CHANNEL/$filename" $ENDPOINT_ARG
+            echo "   ↗️ $filename -> s3://$S3_BUCKET/$CHANNEL/$VERSION/$filename (archive)"
+            aws s3 cp "$yml" "s3://$S3_BUCKET/$CHANNEL/$VERSION/$filename" $ENDPOINT_ARG
+          fi
+        done
+
+        echo ""
+        echo "✅ S3 upload completed!"
+        echo ""
+        echo "📋 Files in s3://$S3_BUCKET/$CHANNEL/:"
+        aws s3 ls "s3://$S3_BUCKET/$CHANNEL/" $ENDPOINT_ARG || true
+        echo ""
+        echo "📋 Files in s3://$S3_BUCKET/$CHANNEL/$VERSION/:"
+        aws s3 ls "s3://$S3_BUCKET/$CHANNEL/$VERSION/" $ENDPOINT_ARG || true
+
+    - name: Publish renderer OTA base marker
+      shell: bash
+      env:
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
+        AWS_REGION: ${{ inputs.s3-region }}
+        S3_BUCKET: ${{ inputs.s3-bucket }}
+        S3_ENDPOINT: ${{ inputs.s3-endpoint }}
+        CHANNEL: ${{ inputs.channel }}
+        CLOUD_REF: ${{ inputs.cloud-ref }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$S3_BUCKET" ]; then
+          echo "S3 bucket not configured, skipping renderer OTA marker"
+          exit 0
+        fi
+
+        ENDPOINT_ARG=""
+        if [ -n "$S3_ENDPOINT" ]; then
+          ENDPOINT_ARG="--endpoint-url $S3_ENDPOINT"
+        fi
+
+        MAIN_HASH=$(cat release/renderer-mainhash.txt)
+        if [[ ! "$MAIN_HASH" =~ ^[0-9a-f]{64}$ ]] || [[ ! "$CLOUD_REF" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "Invalid renderer OTA base metadata"
+          exit 1
+        fi
+
+        echo "renderer OTA base mainHash: $MAIN_HASH"
+        jq -n \
+          --arg cloudRef "$CLOUD_REF" \
+          --arg mainHash "$MAIN_HASH" \
+          --arg version "$VERSION" \
+          '{ cloudRef: $cloudRef, mainHash: $mainHash, rendererProtocol: 2, version: $version }' \
+          > /tmp/renderer-ota-base.json
+
+        RENDERER_ROOT="release/renderer-ota/$CHANNEL/$VERSION/renderer/v2"
+        LATEST="$RENDERER_ROOT/latest.json"
+        SNAPSHOT="$RENDERER_ROOT/versions/r0.json"
+        if [ ! -d "$RENDERER_ROOT/packs" ] || [ ! -f "$LATEST" ] || [ ! -f "$SNAPSHOT" ]; then
+          echo "Renderer OTA r0 artifacts are incomplete"
+          exit 1
+        fi
+
+        S3_RENDERER_ROOT="s3://$S3_BUCKET/$CHANNEL/$VERSION/renderer/v2"
+        aws s3 sync "$RENDERER_ROOT/packs" "$S3_RENDERER_ROOT/packs" \
+          --size-only \
+          --content-type application/zip \
+          --cache-control public,max-age=31536000,immutable \
+          $ENDPOINT_ARG
+        aws s3 cp "$SNAPSHOT" "$S3_RENDERER_ROOT/versions/r0.json" \
+          --cache-control no-store $ENDPOINT_ARG
+        aws s3 cp "$LATEST" "$S3_RENDERER_ROOT/latest.json" \
+          --cache-control no-store $ENDPOINT_ARG
+        aws s3 cp /tmp/renderer-ota-base.json "s3://$S3_BUCKET/$CHANNEL/base.json" \
+          --cache-control no-store $ENDPOINT_ARG
+        echo "Published renderer OTA r0 for $CHANNEL/$VERSION"

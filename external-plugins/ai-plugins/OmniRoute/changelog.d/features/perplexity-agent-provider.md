@@ -1,0 +1,1 @@
+- **feat(providers):** add a Perplexity Agent API provider (`perplexity-agent` / `pplx-agent`) for Perplexity `/v1/responses`, including the documented Anthropic, OpenAI, Google, xAI, DeepSeek, Z.AI, Moonshot/Kimi, NVIDIA, and Perplexity model IDs plus Anthropic-model `max_output_tokens` compatibility.

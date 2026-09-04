@@ -1,0 +1,1 @@
+- fix(db): rate-limit repeated Arena ELO leaderboard fetch-failure warnings instead of logging one per sync attempt (#11500)

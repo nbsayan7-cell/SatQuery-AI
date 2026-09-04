@@ -1,0 +1,1 @@
+- **feat(routing):** add a `score` Auto router strategy that selects the highest configured weighted score and reuses `explorationRate`.

@@ -1,0 +1,12 @@
+(library
+ (public_name commons2)
+ (wrapped false)
+ (libraries
+    commons
+ )
+ (preprocess
+   (pps
+     ppx_deriving.show
+   )
+ )
+)

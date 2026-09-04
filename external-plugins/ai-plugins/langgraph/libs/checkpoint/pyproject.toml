@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "langgraph-checkpoint"
+version = "4.2.0"
+description = "Library with base interfaces for LangGraph checkpoint savers."
+authors = []
+requires-python = ">=3.10"
+readme = "README.md"
+license = "MIT"
+license-files = ['LICENSE']
+dependencies = [
+    "langchain-core>=0.2.38",
+    "ormsgpack>=1.12.0",
+]
+
+[project.urls]
+Source = "https://github.com/langchain-ai/langgraph/tree/main/libs/checkpoint"
+Twitter = "https://x.com/langchain_oss"
+Slack = "https://www.langchain.com/join-community"
+Reddit = "https://www.reddit.com/r/LangChain/"
+
+[dependency-groups]
+test = [
+  "pytest",
+  "pytest-asyncio",
+  "pytest-mock",
+  "pytest-watcher",
+  "dataclasses-json",
+  "numpy",
+  "pandas",
+  "pandas-stubs>=2.2.2.240807",
+  "redis",
+]
+lint = [
+  "ruff",
+  "codespell",
+  "ty",
+]
+dev = [
+  {include-group = "test"},
+  {include-group = "lint"},
+  "pycryptodome>=3.23.0",
+]
+
+[tool.hatch.build.targets.wheel]
+include = ["langgraph"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers --strict-config --durations=5 -vv"
+asyncio_mode = "auto"
+
+[tool.ruff]
+lint.select = [
+  "E",  # pycodestyle
+  "F",  # Pyflakes
+  "UP", # pyupgrade
+  "B",  # flake8-bugbear
+  "I",  # isort
+  "PLC0415",  # import-outside-top-level
+  "RUF100",  # unused noqa directive
+  "UP", # pyupgrade
+]
+lint.ignore = ["E501", "B008"]
+# PLC0415 (import-outside-top-level) is enforced in tests only. Library code
+# still has deferred imports that have not been reviewed, so it stays exempt
+# for now.
+lint.per-file-ignores = { "langgraph/**" = ["PLC0415"] }
+target-version = "py310"
+
+[tool.ty.rules]
+deprecated = "ignore"
+invalid-argument-type = "ignore"
+invalid-assignment = "ignore"
+invalid-key = "ignore"
+invalid-method-override = "ignore"
+invalid-return-type = "ignore"
+invalid-type-form = "ignore"
+redundant-cast = "ignore"
+unused-type-ignore-comment = "ignore"
+unresolved-attribute = "ignore"
+unresolved-import = "ignore"
+unsupported-operator = "ignore"
+
+[tool.pytest-watcher]
+now = true
+delay = 0.1
+runner_args = ["--ff", "-v", "--tb", "short"]
+patterns = ["*.py"]

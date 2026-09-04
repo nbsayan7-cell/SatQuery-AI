@@ -1,0 +1,2538 @@
+name: '📚 Book · 🚀 Publish (Live)'
+
+# =============================================================================
+# 🚀 Publish (Live) — Merge dev into main, build, and deploy to production
+# =============================================================================
+#
+# The "big red button" production release workflow. Merges a specific (or latest)
+# dev commit into main, triggers a full container build, deploys HTML to gh-pages,
+# creates a versioned Git tag, and publishes a GitHub Release with AI-generated notes.
+#
+# Flow:
+#   1. VALIDATE        — Confirm inputs, compute version, run pre-flight checks
+#   2. MERGE           — Fast-forward or merge dev commit into main
+#   3. BUILD           — Trigger book-build-container.yml targeting main
+#   4. DEPLOY          — Download artifacts, push HTML to gh-pages branch
+#   5. RELEASE         — Create Git tag, generate release notes, publish GitHub Release
+#   6. CLEANUP         — On failure or timeout, revert merge and clean up
+#
+# Triggers:
+#   - workflow_dispatch: manual only (requires "PUBLISH" confirmation)
+#
+# Deploys to: gh-pages branch (production site)
+# Secrets:    GITHUB_TOKEN
+# Vars:       BOOK_ROOT, BOOK_QUARTO, BOOK_DOCKER, BOOK_TOOLS, BOOK_DEPS,
+#             VOL1_DEPLOY_PATH (top-level gh-pages dir for Vol I, e.g. "vol1"),
+#             VOL2_DEPLOY_PATH (top-level gh-pages dir for Vol II, e.g. "vol2").
+#             Both are read here AND in book-preview-dev.yml so the same
+#             /vol1/ and /vol2/ URLs resolve identically on dev + live.
+#
+# Related:
+#   - book-build-container.yml — Reusable build matrix called for production builds
+#   - book-validate-dev.yml    — Dev validation (run this first before publishing)
+#   - book-preview-dev.yml     — Dev preview (staging equivalent of this workflow)
+#
+# =============================================================================
+
+# NB: gh-pages-deploy concurrency is declared per-job (on the deploy step
+# only). The container build, release-notes generation, and tagging do not
+# touch gh-pages and run in parallel with other publish workflows.
+
+# =============================================================================
+# CONFIGURABLE VARIABLES - Edit these to customize the workflow
+# =============================================================================
+
+# AI Model Configuration
+env:
+  DEFAULT_AI_MODEL: "gemma2:9b"            # Default Ollama model (9b fits on GitHub runners)
+  FALLBACK_AI_MODEL: "llama3.2:3b"         # Fallback if default model fails (smaller)
+  OLLAMA_TIMEOUT: "300"                    # Timeout for Ollama operations (seconds)
+  OLLAMA_RETRIES: "3"                      # Number of retries for Ollama calls
+  BUILD_TIMEOUT: "3600"                    # Timeout for build operations (1 hour)
+
+  # ==========================================================================
+  # PATH CONFIGURATION - Uses GitHub Repository Variables (Settings > Variables)
+  # ==========================================================================
+  # MLSysBook content lives under book/ to accommodate TinyTorch at root
+  # Use ${{ vars.BOOK_ROOT }}, ${{ vars.BOOK_QUARTO }}, etc. in workflow steps
+  # Variables: BOOK_ROOT, BOOK_DOCKER, BOOK_TOOLS, BOOK_QUARTO, BOOK_DEPS
+
+  # Quarto Configuration Files
+  QUARTO_HTML_CONFIG: "_quarto-html.yml"  # HTML build configuration file
+  QUARTO_PDF_CONFIG: "_quarto-pdf.yml"    # PDF build configuration file
+  QUARTO_MAIN_CONFIG: "_quarto.yml"       # Main Quarto configuration file
+
+# =============================================================================
+# ARTIFACT COORDINATION SYSTEM
+# =============================================================================
+# The 📋 Quarto Build Container workflow creates build artifacts and an artifact manifest:
+#
+# artifact-manifest: JSON file declaring the names of HTML, PDF, and EPUB artifacts
+# main-html-linux: Contains build/html/ (web version)
+# main-pdf-linux:  Contains Machine-Learning-Systems-Vol{1,2}.pdf
+# main-epub-linux: Contains Machine-Learning-Systems-Vol{1,2}.epub
+# main-html-windows: Contains build/html/ (web version)
+# main-pdf-windows: Contains Machine-Learning-Systems-Vol{1,2}.pdf
+# main-epub-windows: Contains Machine-Learning-Systems-Vol{1,2}.epub
+#
+# This workflow downloads the artifact manifest first to get the exact names,
+# then downloads the HTML, PDF, and EPUB artifacts using those names for coordination.
+# Quarto Build Container now uses dynamic matrix generation and explicit naming contracts.
+#
+# Artifact manifest structure:
+# {
+#   "html_artifact_name": "main-html-linux",
+#   "pdf_artifact_name": "main-pdf-linux",
+#   "epub_artifact_name": "main-epub-linux",
+#   "build_timestamp": "20250115-143022",
+#   "commit_sha": "abc123...",
+#   "workflow_run_id": "12345",
+#   "detailed_manifest": "build-manifest-detailed",
+#   "parallel_builds": true,
+#   "extensible": true
+# }
+# =============================================================================
+
+# Available AI Models (uncomment to use different models):
+# - gemma2:9b      (fast, good quality - recommended)
+# - gemma2:27b     (better quality, slower)
+# - llama3.1:8b    (good balance)
+# - llama3.1:70b   (best quality, slowest)
+# - mistral:7b     (fast, good for analysis)
+# - codellama:7b   (good for code-related changes)
+
+# Manual trigger only - big red button!
+# Only allow manual triggers from main and dev branches
+#
+# 🎯 PUBLISHING BEHAVIOR:
+# ├── With dev_commit specified (e.g., "b5b452e"):
+# │   ├── Merges EXACTLY that commit into main
+# │   ├── Includes content + workflow files from that point in time
+# │   └── Warning: You get the old workflow version too!
+# │
+# └── Without dev_commit (empty):
+#     ├── Merges latest dev branch into main
+#     ├── Includes newest content + newest workflow files
+#     └── Recommended for most releases
+#
+# 🌿 BRANCH CONTROL:
+# Quarto Build Container workflow will automatically build from the main branch
+# after the merge. The quarto build workflow can also be called manually with
+# custom branch targets if needed for testing or special builds.
+
+# Concurrency control: strict for production, flexible for testing
+# Concurrency disabled - allow unlimited parallel builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      description:
+        description: 'What are you publishing? [Content updates and improvements]'
+        required: false
+        default: 'Content updates and improvements'
+      release_type:
+        description: 'Release type [patch]'
+        required: true
+        type: choice
+        options:
+          - 'patch'
+          - 'minor'
+          - 'major'
+        default: 'patch'
+      dev_commit:
+        description: 'Specific dev commit to publish (WARNING: includes old workflow files!) [latest dev]'
+        required: false
+        default: ''
+      confirm:
+        description: 'Type "PUBLISH" to confirm (safety check) [required]'
+        required: true
+        default: ''
+      ai_generated_notes:
+        description: 'Generate AI-enhanced release notes? [yes]'
+        required: true
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+        default: 'yes'
+      commit_status_timeout:
+        description: 'Number of status check attempts [180 = 3 hours at 60s intervals]'
+        required: false
+        default: '180'
+      commit_status_interval:
+        description: 'Seconds between status checks [60]'
+        required: false
+        default: '60'
+      previous_version:
+        description: 'Previous version override (vol1-vX.Y.Z or vol2-vX.Y.Z). Only used when deploy_target is vol1 OR vol2 (single-volume). Ignored if deploy_target=all. Leave blank to auto-detect from latest matching tag.'
+        required: false
+        default: ''
+      testing_mode:
+        description: 'Enable testing mode (allows parallel runs, skips actual deployment) [no]'
+        required: false
+        type: choice
+        options:
+          - 'no'
+          - 'yes'
+        default: 'no'
+      deploy_target:
+        description: 'Deploy target (vol1, vol2, all=everything)'
+        required: false
+        type: choice
+        options:
+          - 'all'
+          - 'vol1'
+          - 'vol2'
+        default: 'all'
+      site_only:
+        description: 'Website-only deploy? When true, the merge to main, full build (HTML/PDF/EPUB), and gh-pages deploy all run normally, but the DOI rewrite, tag creation, release-notes generation, and GitHub Release creation are skipped. Use this for post-release content tweaks where the version should stay at its current value.'
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      description:
+        type: string
+        required: false
+        default: 'Content updates and improvements'
+      release_type:
+        type: string
+        required: false
+        default: 'patch'
+      dev_commit:
+        type: string
+        required: false
+        default: ''
+      confirm:
+        type: string
+        required: true
+      ai_generated_notes:
+        type: string
+        required: false
+        default: 'yes'
+      commit_status_timeout:
+        type: string
+        required: false
+        default: '180'
+      commit_status_interval:
+        type: string
+        required: false
+        default: '60'
+      previous_version:
+        type: string
+        required: false
+        default: ''
+      testing_mode:
+        type: string
+        required: false
+        default: 'no'
+      deploy_target:
+        type: string
+        required: false
+        default: 'all'
+      site_only:
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+  packages: read
+
+jobs:
+  # Block publish unless the latest dev validate run for the book is green.
+  # See .github/workflows/infra-publish-guard.yml for guard semantics.
+  # NB: book has its own elaborate pre-flight; this guard is the cross-cutting
+  # safety check that verifies *validate-dev* is recently green, not just that
+  # the local checkout looks OK.
+  guard:
+    name: '🛡️ Validate-Dev Green Gate'
+    if: inputs.confirm == 'PUBLISH' && inputs.testing_mode != 'yes'
+    uses: ./.github/workflows/infra-publish-guard.yml
+    with:
+      validate_workflow: book-validate-dev.yml
+
+  debug-log:
+    name: '📋 Debug & Audit Log'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📋 Log Workflow Inputs & Context
+        run: |
+          echo "## 📋 Workflow Debug & Audit Log" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Attempt:** ${{ github.run_attempt }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "=== 📋 WORKFLOW DEBUG & AUDIT LOG ==="
+          echo "🕐 Workflow started at: $(date -u)"
+          echo "🔄 Run ID: ${{ github.run_id }}"
+          echo "🔄 Run Attempt: ${{ github.run_attempt }}"
+          echo "👤 Triggered by: ${{ github.actor }}"
+          echo "🌐 Repository: ${{ github.repository }}"
+          echo ""
+
+          echo "=== 📝 USER INPUTS ==="
+          echo "Description: '${{ inputs.description }}'"
+          echo "Release Type: '${{ inputs.release_type }}'"
+          echo "Dev Commit: '${{ inputs.dev_commit }}'"
+          echo "Confirmation: '${{ inputs.confirm }}'"
+          echo "AI Generated Notes: '${{ inputs.ai_generated_notes }}'"
+          echo "Status Check Timeout: '${{ inputs.commit_status_timeout }}' attempts"
+          echo "Status Check Interval: '${{ inputs.commit_status_interval }}' seconds"
+          echo ""
+
+          echo "### 📝 User Inputs:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Description:** ${{ inputs.description }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Type:** ${{ inputs.release_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dev Commit:** ${{ inputs.dev_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Confirmation:** ${{ inputs.confirm }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AI Generated Notes:** ${{ inputs.ai_generated_notes }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status Check Timeout:** ${{ inputs.commit_status_timeout }} attempts" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status Check Interval:** ${{ inputs.commit_status_interval }} seconds" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🔍 Log Git & Environment Context
+        run: |
+          echo "=== 🔍 GIT CONTEXT ==="
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+          echo "Event: ${{ github.event_name }}"
+          echo ""
+
+          echo "Git Status:"
+          git status --porcelain || echo "No git status available"
+          echo ""
+
+          echo "Recent Commits (last 5):"
+          git log --oneline -5 || echo "No git log available"
+          echo ""
+
+          echo "Remote branches:"
+          git branch -r | head -10 || echo "No remote branches info"
+          echo ""
+
+          echo "Latest tags:"
+          git tag --sort=-version:refname | head -10 || echo "No tags found"
+          echo ""
+
+          echo "### 🔍 Git Context:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Event:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🛠️ Log Environment & AI Configuration
+        run: |
+          echo "=== 🛠️ ENVIRONMENT ==="
+          echo "Runner OS: ${{ runner.os }}"
+          echo "Default AI Model: ${{ env.DEFAULT_AI_MODEL }}"
+          echo "Fallback AI Model: ${{ env.FALLBACK_AI_MODEL }}"
+          echo "Ollama Timeout: ${{ env.OLLAMA_TIMEOUT }}"
+          echo "Ollama Retries: ${{ env.OLLAMA_RETRIES }}"
+          echo "Build Timeout: ${{ env.BUILD_TIMEOUT }}"
+          echo ""
+
+          echo "=== 🧪 VALIDATION CHECKS ==="
+          echo "Confirmation Valid: ${{ inputs.confirm == 'PUBLISH' }}"
+          echo "Branch Valid: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}"
+          echo "Will Proceed: ${{ inputs.confirm == 'PUBLISH' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') }}"
+          echo ""
+
+          echo "### 🛠️ Environment:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Runner OS:** ${{ runner.os }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AI Model:** ${{ env.DEFAULT_AI_MODEL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Valid Confirmation:** ${{ inputs.confirm == 'PUBLISH' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Valid Branch:** ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Will Proceed:** ${{ inputs.confirm == 'PUBLISH' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: 📊 Log Previous Releases
+        run: |
+          echo "=== 📊 RELEASE HISTORY ==="
+          echo "Checking existing releases..."
+
+          # Get latest releases
+          RELEASES=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases?per_page=5" \
+            | jq -r '.[] | "\(.tag_name) - \(.published_at // "draft") - \(.draft)"' 2>/dev/null || echo "Unable to fetch releases")
+
+          echo "Recent releases:"
+          echo "$RELEASES"
+          echo ""
+
+          # Get latest tags
+          echo "Latest tags:"
+          git tag --sort=-version:refname | head -5 || echo "No tags found"
+          echo ""
+
+          echo "### 📊 Release History:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "$RELEASES" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+  validate-inputs:
+    name: '🔍 Validate Inputs'
+    runs-on: ubuntu-latest
+    needs: [guard]
+    timeout-minutes: 10
+    if: inputs.confirm == 'PUBLISH' && inputs.testing_mode != 'yes' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    outputs:
+      # Backwards-compatible "summary" version string used by the 50+ status /
+      # release-notes / commit-message references downstream. With per-volume
+      # versioning it becomes either "vol1-vX.Y.Z", "vol2-vX.Y.Z", or
+      # "vol1-vX.Y.Z+vol2-vA.B.C" depending on deploy_target. Steps that need
+      # the per-volume value should use new_vol1_version / new_vol2_version
+      # instead.
+      new_version: ${{ steps.version.outputs.new_version }}
+      previous_version: ${{ steps.version.outputs.previous_version }}
+      release_type: ${{ steps.version.outputs.release_type }}
+      # Per-volume outputs — empty string when that volume is not in the
+      # current deploy_target.
+      new_vol1_version: ${{ steps.version.outputs.new_vol1_version }}
+      new_vol2_version: ${{ steps.version.outputs.new_vol2_version }}
+      previous_vol1_version: ${{ steps.version.outputs.previous_vol1_version }}
+      previous_vol2_version: ${{ steps.version.outputs.previous_vol2_version }}
+
+    steps:
+      - name: 🔒 Check Branch Restriction
+        run: |
+          echo "🔒 Checking branch restrictions..."
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "Current ref: ${{ github.ref }}"
+
+          if [[ "${{ github.ref }}" != "refs/heads/main" && "${{ github.ref }}" != "refs/heads/dev" ]]; then
+            echo "❌ ERROR: This workflow can only be triggered from 'main' or 'dev' branches"
+            echo "❌ Current branch: ${{ github.ref_name }}"
+            echo "❌ Please switch to 'main' or 'dev' branch before running this workflow"
+            exit 1
+          fi
+
+          echo "✅ Branch check passed - running from ${{ github.ref_name }}"
+
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔍 Validate dev commit
+        run: |
+          echo "🔍 Validating dev commit..."
+
+          # Get the commit to validate and trim whitespace
+          COMMIT_SHA=$(echo "${{ inputs.dev_commit }}" | xargs)
+
+          if [ -n "$COMMIT_SHA" ]; then
+            echo "📌 Using specified commit: $COMMIT_SHA"
+
+            # Verify commit exists and is from dev branch
+            if ! git cat-file -e "$COMMIT_SHA" 2>/dev/null; then
+              echo "❌ Commit $COMMIT_SHA does not exist!"
+              exit 1
+            fi
+
+            if ! git merge-base --is-ancestor "$COMMIT_SHA" origin/dev; then
+              echo "❌ Commit $COMMIT_SHA is not in dev branch!"
+              exit 1
+            fi
+
+            echo "✅ Commit $COMMIT_SHA is valid and from dev branch"
+          else
+            echo "📌 Using latest dev commit (no specific commit specified)"
+          fi
+
+          echo "✅ Ready to publish"
+
+      - name: 🏷️ Calculate Next Version (per-volume)
+        id: version
+        run: |
+          # ----------------------------------------------------------------
+          # Per-volume version computation.
+          #
+          # Each volume tracks its own tag space:
+          #   vol1: tag prefix  vol1-v*    (continues from legacy book-v* if
+          #                                no vol1-v* tag exists yet)
+          #   vol2: tag prefix  vol2-v*    (defaults to v0.0.0 → first release
+          #                                bumps to v0.1.0)
+          #
+          # `deploy_target` decides which volume(s) get bumped on this run.
+          # The release_type (patch/minor/major) is applied to each volume
+          # that is in scope. The `new_version` output is a summary string
+          # used by downstream status/commit-message steps.
+          #
+          # `previous_version` workflow input (legacy override) is interpreted
+          # as the previous version for whichever single volume is targeted.
+          # If deploy_target=all, the input is ignored and both versions are
+          # auto-detected.
+          # ----------------------------------------------------------------
+
+          DEPLOY_TARGET="${{ inputs.deploy_target }}"
+          RELEASE_TYPE="${{ inputs.release_type }}"
+          OVERRIDE="${{ inputs.previous_version }}"
+
+          echo "📦 Deploy target: $DEPLOY_TARGET"
+          echo "📈 Release type:  $RELEASE_TYPE"
+
+          # NOTE on bash style: each `local` declaration is on its own line.
+          # Bundling them ("local a=$1 b=$2 c=${b#x}") breaks the parameter
+          # expansion in `c` because `b` isn't visible at expansion time.
+          bump() {
+            # bump <PREFIX> <PREVIOUS_FULL_TAG> → echoes new full tag
+            local prefix="$1"
+            local prev="$2"
+            local num="${prev#${prefix}-v}"
+            local major minor patch
+            IFS='.' read -r major minor patch <<< "$num"
+            major=${major:-0}
+            minor=${minor:-0}
+            patch=${patch:-0}
+            case "$RELEASE_TYPE" in
+              major) major=$((major+1)); minor=0; patch=0 ;;
+              minor) minor=$((minor+1)); patch=0 ;;
+              patch) patch=$((patch+1)) ;;
+            esac
+            echo "${prefix}-v${major}.${minor}.${patch}"
+          }
+
+          latest_for() {
+            # latest_for <PREFIX> [FALLBACK_TAG] → echoes latest tag with that
+            # prefix, or FALLBACK_TAG if none exists.
+            local prefix="$1"
+            local fallback="$2"
+            local latest
+            [ -z "$fallback" ] && fallback="${prefix}-v0.0.0"
+            latest=$(git tag -l "${prefix}-v*" | sort -V | tail -n1)
+            echo "${latest:-$fallback}"
+          }
+
+          # ------------------------------- vol1 ----------------------------
+          NEW_VOL1=""
+          PREV_VOL1=""
+          if [[ "$DEPLOY_TARGET" == "vol1" || "$DEPLOY_TARGET" == "all" ]]; then
+            if [ "$DEPLOY_TARGET" == "vol1" ] && [ -n "$OVERRIDE" ]; then
+              PREV_VOL1="$OVERRIDE"
+              echo "📌 vol1: using provided previous_version: $PREV_VOL1"
+            else
+              # Seed vol1 from legacy book-v* if no vol1-v* tag exists yet,
+              # so the v0.5.1 → v0.6.0 line is preserved across the rename.
+              LEGACY=$(git tag -l "book-v*" | sort -V | tail -n1)
+              LEGACY=${LEGACY:-book-v0.0.0}
+              SEED_VOL1="vol1-v${LEGACY#book-v}"
+              PREV_VOL1=$(latest_for "vol1" "$SEED_VOL1")
+              echo "📊 vol1: latest = $PREV_VOL1"
+            fi
+            NEW_VOL1=$(bump "vol1" "$PREV_VOL1")
+            echo "🎯 vol1: new    = $NEW_VOL1"
+          fi
+
+          # ------------------------------- vol2 ----------------------------
+          NEW_VOL2=""
+          PREV_VOL2=""
+          if [[ "$DEPLOY_TARGET" == "vol2" || "$DEPLOY_TARGET" == "all" ]]; then
+            if [ "$DEPLOY_TARGET" == "vol2" ] && [ -n "$OVERRIDE" ]; then
+              PREV_VOL2="$OVERRIDE"
+              echo "📌 vol2: using provided previous_version: $PREV_VOL2"
+            else
+              # Seed vol2 from v0.0.0 so the FIRST publish lands at v0.1.0
+              # (when release_type=minor, which it should be for a 1st
+              # release). vol2 has no legacy tag history to inherit from.
+              PREV_VOL2=$(latest_for "vol2" "vol2-v0.0.0")
+              echo "📊 vol2: latest = $PREV_VOL2"
+            fi
+            NEW_VOL2=$(bump "vol2" "$PREV_VOL2")
+            echo "🎯 vol2: new    = $NEW_VOL2"
+          fi
+
+          # --------------------------- summary string -----------------------
+          # Backwards-compatible `new_version` for the many downstream
+          # references that just want to print "what we're shipping".
+          if [ -n "$NEW_VOL1" ] && [ -n "$NEW_VOL2" ]; then
+            NEW_SUMMARY="${NEW_VOL1}+${NEW_VOL2}"
+            PREV_SUMMARY="${PREV_VOL1}+${PREV_VOL2}"
+          elif [ -n "$NEW_VOL1" ]; then
+            NEW_SUMMARY="$NEW_VOL1"
+            PREV_SUMMARY="$PREV_VOL1"
+          elif [ -n "$NEW_VOL2" ]; then
+            NEW_SUMMARY="$NEW_VOL2"
+            PREV_SUMMARY="$PREV_VOL2"
+          else
+            echo "❌ deploy_target=$DEPLOY_TARGET produced no per-volume bumps"
+            exit 1
+          fi
+
+          echo ""
+          echo "🏁 Summary: $NEW_SUMMARY (prev: $PREV_SUMMARY)"
+
+          {
+            echo "new_version=$NEW_SUMMARY"
+            echo "previous_version=$PREV_SUMMARY"
+            echo "release_type=$RELEASE_TYPE"
+            echo "new_vol1_version=$NEW_VOL1"
+            echo "new_vol2_version=$NEW_VOL2"
+            echo "previous_vol1_version=$PREV_VOL1"
+            echo "previous_vol2_version=$PREV_VOL2"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 🛡️ No-downgrade guard (per-volume)
+        if: ${{ !inputs.site_only }}
+        env:
+          # Step `run:` blocks don't inherit shell variables across steps;
+          # surface the per-volume outputs as env so the guard can read them.
+          NEW_VOL1: ${{ steps.version.outputs.new_vol1_version }}
+          NEW_VOL2: ${{ steps.version.outputs.new_vol2_version }}
+        run: |
+          # ----------------------------------------------------------------
+          # No-downgrade guard.
+          #
+          # The version-bump step computes NEW_VOL{1,2} from the latest
+          # vol{1,2}-v* tag (with a legacy/zero-seed fallback for first
+          # releases). When the per-volume index.qmd doi has been edited
+          # ahead of the tags — for example vol2 is currently displaying
+          # `doi: "v0.5.1"` inherited from the legacy single-volume era —
+          # the auto-computed value can be LOWER than what the source
+          # already shows, and the downstream sed step would silently
+          # rewrite the doi to the lower version.
+          #
+          # Concrete failure modes this guard prevents:
+          #   - vol2: index-vol2.qmd doi="v0.5.1", no vol2-v* tag exists,
+          #           release_type=patch → workflow computes vol2-v0.0.1
+          #           → sed rewrites doi to "v0.0.1" → the public welcome
+          #           page silently regresses from v0.5.1 to v0.0.1.
+          #   - any volume where someone manually edited doi past the
+          #           latest tag and then ran patch/minor against the
+          #           older tag.
+          #
+          # The guard refuses to proceed if the bare planned version is
+          # not >= the bare doi already in EITHER per-volume index.qmd.
+          # Equality is allowed (no-op write); strictly less is blocked.
+          #
+          # Fix when this trips:
+          #   - If the doi in index-vol{N}.qmd is correct, request the
+          #     matching version: re-run with previous_version pointing
+          #     at the right tag (or seed a tag at the displayed version
+          #     and re-run).
+          #   - If the doi is stale, edit it down to match the latest
+          #     tag and re-run.
+          # ----------------------------------------------------------------
+
+          # sort -V puts the higher semver last
+          semver_lt() {
+            # returns 0 (true) if $1 < $2 strictly
+            local a="$1" b="$2"
+            [ "$a" = "$b" ] && return 1
+            local highest
+            highest=$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -n1)
+            [ "$highest" = "$b" ]
+          }
+
+          read_doi() {
+            local f="$1"
+            [ -f "$f" ] || { echo ""; return; }
+            grep -E '^[[:space:]]*doi:[[:space:]]*"' "$f" \
+              | head -n1 | sed -E 's/.*"([^"]+)".*/\1/' \
+              | sed -E 's/^v//'
+          }
+
+          check_volume() {
+            # check_volume <vol-tag>  e.g. vol1-v0.6.0
+            local new_tag="$1" prefix bare doi_bare doi_raw f
+            [ -z "$new_tag" ] && return 0   # not in scope this run
+            prefix="${new_tag%%-*}"        # vol1 or vol2
+            bare="${new_tag#${prefix}-v}"  # X.Y.Z
+            f="${{ vars.BOOK_QUARTO }}/index-${prefix}.qmd"
+
+            if [ ! -f "$f" ]; then
+              echo "⚠️ $f missing — skipping guard for $prefix (PR-6 not deployed?)."
+              return 0
+            fi
+
+            doi_bare=$(read_doi "$f")
+            doi_raw="v${doi_bare}"
+            echo "📂 $prefix source-of-truth (${f##*/}): $doi_raw"
+            echo "🎯 $prefix planned new version:        v$bare"
+
+            if [ -z "$doi_bare" ]; then
+              echo "❌ Could not read doi from $f — refusing to proceed."
+              return 1
+            fi
+
+            if semver_lt "$bare" "$doi_bare"; then
+              echo ""
+              echo "❌ DOWNGRADE BLOCKED for $prefix"
+              echo "   ${f##*/} doi is v$doi_bare but this run would write v$bare."
+              echo ""
+              echo "   This usually means index-${prefix}.qmd was edited past"
+              echo "   the latest ${prefix}-v* tag, or no ${prefix}-v* tag"
+              echo "   exists yet and the auto-seeded baseline is lower than"
+              echo "   what readers currently see."
+              echo ""
+              echo "   To proceed, either:"
+              echo "     1. Run with previous_version=${prefix}-v$doi_bare so the"
+              echo "        next bump starts from the displayed version, or"
+              echo "     2. Edit index-${prefix}.qmd doi down to match the"
+              echo "        latest ${prefix}-v* tag and re-run."
+              return 1
+            fi
+
+            echo "✅ $prefix planned v$bare ≥ source v$doi_bare — allowed."
+            return 0
+          }
+
+          rc=0
+          check_volume "$NEW_VOL1" || rc=1
+          check_volume "$NEW_VOL2" || rc=1
+          exit "$rc"
+
+  pre-flight-checks:
+    name: '🛫 Pre-Flight Validation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: validate-inputs
+    if: inputs.confirm == 'PUBLISH' && inputs.testing_mode != 'yes'
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔍 Validate Dev Branch Content
+        run: |
+          echo "🔍 Validating dev branch content before merge..."
+
+          # Switch to dev branch and pull latest
+          git checkout dev
+          git pull origin dev
+
+          # Check if dev commit exists and is valid
+          if [ -n "${{ inputs.dev_commit }}" ]; then
+            DEV_COMMIT=$(echo "${{ inputs.dev_commit }}" | xargs)
+            echo "📌 Validating specific commit: $DEV_COMMIT"
+
+            if ! git cat-file -e "$DEV_COMMIT" 2>/dev/null; then
+              echo "❌ Commit $DEV_COMMIT does not exist!"
+              exit 1
+            fi
+
+            if ! git merge-base --is-ancestor "$DEV_COMMIT" HEAD; then
+              echo "❌ Commit $DEV_COMMIT is not in current dev branch!"
+              exit 1
+            fi
+
+            # Checkout the specific commit for validation
+            git checkout "$DEV_COMMIT"
+          fi
+
+          echo "✅ Dev branch content validated"
+
+      - name: 📚 Validate Quarto Project Structure
+        run: |
+          echo "📚 Validating Quarto project structure..."
+
+          cd ${{ vars.BOOK_QUARTO }}
+
+          # Check critical per-volume Quarto configs exist. Post Vol1/Vol2
+          # split there is no monolithic _quarto.yml at the project root —
+          # the build matrix in book-build-container.yml drives renders from
+          # config/_quarto-{html,pdf,epub}-vol{1,2}.yml. The legacy
+          # QUARTO_MAIN_CONFIG / QUARTO_HTML_CONFIG / QUARTO_PDF_CONFIG env
+          # values are no longer load-bearing and are kept only for
+          # backwards reference; do not reintroduce a check against them.
+          REQUIRED_FILES=(
+            "config/_quarto-html-vol1.yml"
+            "config/_quarto-pdf-vol1.yml"
+            "config/_quarto-html-vol2.yml"
+            "config/_quarto-pdf-vol2.yml"
+            "index-vol1.qmd"
+            "index-vol2.qmd"
+          )
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Required file missing: $file"
+              exit 1
+            fi
+            echo "✅ Found: $file"
+          done
+
+          # Validate Quarto configuration
+          if command -v quarto >/dev/null 2>&1; then
+            echo "🔍 Checking Quarto configuration..."
+            if ! quarto check; then
+              echo "⚠️ Quarto check reported issues, but continuing..."
+            fi
+          else
+            echo "ℹ️ Quarto not available for validation in this environment"
+          fi
+
+          echo "✅ Quarto project structure validated"
+
+      - name: 🧪 Test Build Prerequisites
+        run: |
+          echo "🧪 Testing build prerequisites..."
+
+          # Check disk space (PDF builds need significant space)
+          echo "💾 Checking disk space..."
+          df -h
+
+          AVAILABLE_GB=$(df / | awk 'NR==2 {print int($4/1024/1024)}')
+          echo "📊 Available disk space: ${AVAILABLE_GB}GB"
+
+          if [ "$AVAILABLE_GB" -lt 5 ]; then
+            echo "❌ Insufficient disk space! Need at least 5GB, have ${AVAILABLE_GB}GB"
+            exit 1
+          fi
+
+          echo "✅ Sufficient disk space available"
+
+          # Test GitHub API access
+          echo "🔍 Testing GitHub API access..."
+          if ! curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+               "https://api.github.com/repos/${{ github.repository }}" >/dev/null; then
+            echo "❌ GitHub API access failed!"
+            exit 1
+          fi
+          echo "✅ GitHub API access confirmed"
+
+          echo "✅ All prerequisites validated"
+
+      - name: 🤖 Test AI System Availability
+        if: inputs.ai_generated_notes == 'yes'
+        run: |
+          echo "🤖 Testing if AI system can be installed for release notes..."
+
+          # Quick test: Can we download Ollama installer?
+          echo "🔍 Checking Ollama availability..."
+          if curl -fsSL --max-time 30 https://ollama.ai/install.sh > /dev/null; then
+            echo "✅ Ollama installer is accessible"
+            echo "🤖 AI-enhanced release notes will be available"
+          else
+            echo "⚠️ Ollama installer not accessible"
+            echo "📋 Will use git-log-only release notes instead"
+            echo "💡 This is not a failure - release notes will still be generated"
+          fi
+
+          echo "✅ AI system availability check complete"
+
+      - name: 📋 Pre-Flight Summary
+        run: |
+          echo "## 🛫 Pre-Flight Validation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** All checks passed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "**Dev Commit:** ${{ inputs.dev_commit || 'latest' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Target Version:** ${{ needs.validate-inputs.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Validation Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Validated:" >> $GITHUB_STEP_SUMMARY
+          echo "- Dev branch content and commit validity" >> $GITHUB_STEP_SUMMARY
+          echo "- Quarto project structure and configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- Build prerequisites (disk space, API access)" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.ai_generated_notes }}" = "yes" ]; then
+            echo "- AI system (Ollama) installation and testing" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🚀 **Ready to proceed with merge and publication!**" >> $GITHUB_STEP_SUMMARY
+
+  update-version:
+    name: '📝 Update Version Number'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [validate-inputs, pre-flight-checks]
+    if: inputs.confirm == 'PUBLISH' && inputs.testing_mode != 'yes' && !inputs.site_only
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📝 Update per-volume version in index.qmd
+        run: |
+          # The volume version display lives in TWO places per volume:
+          #   index-vol{N}.qmd                 (project-root, renders /vol{N}/index.html)
+          #   contents/vol{N}/index.qmd        (deep, renders /vol{N}/contents/vol{N}/index.html)
+          # Both have a `doi: "vX.Y.Z"` line that surfaces in the title block,
+          # and version-link.js picks up the v\d+\.\d+\.\d+ string to hyperlink
+          # it to the releases page. The deep file remains the canonical
+          # sidebar "Volume home"; the root file is what the public URL hits.
+          #
+          # We MUST update both — otherwise the publicly-rendered welcome page
+          # at /vol{N}/ would display a stale version after the publish.
+          # The bare "vX.Y.Z" form (no `vol{N}-` prefix) is what readers see;
+          # the per-volume git tag itself uses the vol{N}-v prefix.
+
+          NEW_VOL1="${{ needs.validate-inputs.outputs.new_vol1_version }}"
+          NEW_VOL2="${{ needs.validate-inputs.outputs.new_vol2_version }}"
+
+          git checkout dev
+          git pull origin dev
+
+          UPDATED_FILES=()
+
+          # bump_volume_doi <bare-version> <file...>
+          # Tolerates a missing file (warn only) so a future config change
+          # that removes one of the surfaces doesn't fail the publish.
+          bump_volume_doi() {
+            local bare="$1"; shift
+            for f in "$@"; do
+              if [ ! -f "$f" ]; then
+                echo "⚠️ skipping (not found): $f"
+                continue
+              fi
+              echo "📝 setting doi → $bare in $f"
+              sed -i "s|doi: \".*\"|doi: \"$bare\"|g" "$f"
+              grep "doi:" "$f" || echo "⚠️ no doi: line found in $f"
+              UPDATED_FILES+=("$f")
+            done
+          }
+
+          if [ -n "$NEW_VOL1" ]; then
+            BARE="${NEW_VOL1#vol1-}"   # strip "vol1-" → "vX.Y.Z"
+            bump_volume_doi "$BARE" \
+              "${{ vars.BOOK_QUARTO }}/index-vol1.qmd" \
+              "${{ vars.BOOK_QUARTO }}/contents/vol1/index.qmd"
+          fi
+
+          if [ -n "$NEW_VOL2" ]; then
+            BARE="${NEW_VOL2#vol2-}"
+            bump_volume_doi "$BARE" \
+              "${{ vars.BOOK_QUARTO }}/index-vol2.qmd" \
+              "${{ vars.BOOK_QUARTO }}/contents/vol2/index.qmd"
+          fi
+
+          if [ "${#UPDATED_FILES[@]}" -eq 0 ]; then
+            echo "ℹ️ No per-volume index.qmd to update for this deploy_target."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add "${UPDATED_FILES[@]}"
+          if git diff --cached --quiet; then
+            echo "✅ Volume index.qmd files already at target version — nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "chore: bump volume version(s) to ${{ needs.validate-inputs.outputs.new_version }}"
+          git push origin dev
+          echo "✅ Version commit pushed to dev. merge-to-main will pick it up."
+
+  merge-to-main:
+    name: '🔄 Merge to Main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [validate-inputs, pre-flight-checks, update-version]
+    if: |
+      always()
+      && inputs.confirm == 'PUBLISH'
+      && inputs.testing_mode != 'yes'
+      && needs.validate-inputs.result == 'success'
+      && needs.pre-flight-checks.result == 'success'
+      && (needs.update-version.result == 'success' || needs.update-version.result == 'skipped')
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔍 Check for workflow file changes
+        run: |
+          echo "🔍 Checking if workflow files will be modified in merge..."
+
+          # Check if workflow files are in the dev branch changes
+          if git diff --name-only origin/main..origin/dev | grep -q "\.github/workflows/"; then
+            echo "⚠️  Workflow files detected in dev branch!"
+            echo "📋 This will cause permission issues with publish-live workflow."
+            echo "💡 Please manually merge workflow changes first:"
+            echo "   1. Create PR for workflow changes"
+            echo "   2. Review and merge to main"
+            echo "   3. Then run publish-live for content only"
+            echo ""
+            echo "🔍 Workflow files in dev branch:"
+            git diff --name-only origin/main..origin/dev | grep "\.github/workflows/"
+            echo ""
+            echo "❌ Stopping to prevent permission issues"
+            exit 1
+          else
+            echo "✅ No workflow files detected - safe to proceed"
+          fi
+
+      - name: 🔄 Merge dev to main
+        run: |
+          echo "🔄 Configuring git..."
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "🔄 Fetching latest changes (including version update)..."
+          git fetch origin dev
+          git fetch origin main
+
+          echo "🔄 Switching to main branch..."
+          git checkout main
+          git pull origin main
+
+          # Safety check: Ensure main isn't ahead of specified dev commit
+          if [ -n "${{ inputs.dev_commit }}" ]; then
+            DEV_COMMIT=$(echo "${{ inputs.dev_commit }}" | xargs)
+            echo "🔍 Checking if main is ahead of specified commit $DEV_COMMIT..."
+
+            # Check if dev_commit is an ancestor of current main
+            if git merge-base --is-ancestor "$DEV_COMMIT" HEAD; then
+              echo "⚠️ MAIN IS AHEAD OF SPECIFIED COMMIT!"
+              echo "📊 Current main includes changes newer than $DEV_COMMIT"
+              echo ""
+              echo "🛑 This would create a mixed state (old dev + new main changes)"
+              echo "📋 Options to resolve:"
+              echo "   A) Use latest dev instead (leave dev_commit empty)"
+              echo "   B) Reset main to match dev commit (destructive):"
+              echo "      git checkout main && git reset --hard $DEV_COMMIT && git push --force-with-lease"
+              echo "   C) Merge dev branch normally first, then publish"
+              echo ""
+              echo "❌ Stopping to prevent untested mixed state"
+              exit 1
+            else
+              echo "✅ Safe to merge: $DEV_COMMIT is newer than current main"
+            fi
+          fi
+
+          echo "🔍 Checking for potential merge conflicts..."
+          # Test merge without committing
+          if ! git merge --no-commit --no-ff origin/dev 2>/dev/null; then
+            echo "❌ MERGE CONFLICTS DETECTED!"
+            echo "🛑 Automated merge cannot proceed due to conflicts."
+            echo "📋 Please resolve conflicts manually:"
+            echo "   1. git checkout main"
+            echo "   2. git pull origin main"
+            echo "   3. git merge dev"
+            echo "   4. Resolve conflicts and commit"
+            echo "   5. git push origin main"
+            git merge --abort
+            exit 1
+          fi
+          git reset --hard HEAD  # Clean up test merge
+
+          echo "✅ No conflicts detected. Proceeding with merge..."
+          echo "🔄 Merging dev into main..."
+
+          # Debug: Show what dev_commit input was received
+          DEV_COMMIT_INPUT="${{ inputs.dev_commit }}"
+          echo "🔍 DEBUG: dev_commit input = '$DEV_COMMIT_INPUT'"
+          echo "🔍 DEBUG: Input length = ${#DEV_COMMIT_INPUT}"
+
+          # Determine which commit to merge
+          if [ -n "${{ inputs.dev_commit }}" ]; then
+            MERGE_COMMIT=$(echo "${{ inputs.dev_commit }}" | xargs)
+            echo "📌 SPECIFIC COMMIT MODE: Merging exact commit: $MERGE_COMMIT"
+            echo "⚠️  This includes content + workflow files from that point in time"
+          else
+            MERGE_COMMIT="origin/dev"
+            echo "📊 LATEST DEV MODE: Merging latest dev commit"
+            echo "✅ This includes newest content + newest workflow files"
+          fi
+
+          echo "🎯 Final merge target: $MERGE_COMMIT"
+
+          git merge "$MERGE_COMMIT" --no-ff -m "🚀 Release ${{ needs.validate-inputs.outputs.new_version }}: ${{ inputs.description }}
+
+          Merged dev branch to main for publication.
+
+          Release Type: ${{ inputs.release_type }}
+          Published by: ${{ github.actor }}
+          Dev Commit: ${MERGE_COMMIT}
+          Specific Commit: ${{ inputs.dev_commit || 'latest dev' }}
+          Description: ${{ inputs.description }}"
+
+          echo "✅ Merge completed successfully!"
+
+      - name: 🚀 Push merge to main
+        run: |
+          echo "🚀 Pushing merge to main branch..."
+          git push origin main
+
+          echo "✅ Main branch updated successfully!"
+          echo "📋 Next step: Monitor production build, then create release tag"
+
+  trigger-production-build:
+    name: '🚀 Trigger Production Build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: merge-to-main
+    # always() guards against the skip cascade that happens when update-version
+    # is skipped (site_only=true) and merge-to-main runs under its own
+    # always() — without this, GitHub propagates the skip through the chain
+    # and the build never runs, leaving the gh-pages deploy stale.
+    if: |
+      always()
+      && inputs.confirm == 'PUBLISH'
+      && inputs.testing_mode != 'yes'
+      && needs.merge-to-main.result == 'success'
+    outputs:
+      commit_sha: ${{ steps.commit.outputs.commit_sha }}
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🚀 Get Current Commit SHA
+        id: commit
+        run: |
+          # Get the latest commit SHA from main branch
+          COMMIT_SHA=$(git rev-parse HEAD)
+          echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+          echo "📌 Current commit SHA: $COMMIT_SHA"
+
+  # Matrix-driven production build (clean and simple!)
+  call-production-build:
+    name: '🚀 Call Production Build Matrix'
+    needs: [merge-to-main, trigger-production-build]
+    if: |
+      always()
+      && needs.merge-to-main.result == 'success'
+      && needs.trigger-production-build.result == 'success'
+    uses: ./.github/workflows/book-build-container.yml
+    with:
+      build_linux: true    # Production builds Linux only for now
+      build_windows: false
+      build_html: true     # HTML + PDF + EPUB for production
+      build_pdf: true
+      build_epub: true
+      build_target: all
+      target: main
+      container_registry: 'ghcr.io'
+      container_tag: 'latest'
+      include_pdf_cover: true
+
+
+  create-tag:
+    name: '🏷️ Create Release Tag (Final Step)'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [validate-inputs, download-and-deploy-artifacts]
+    if: inputs.confirm == 'PUBLISH' && inputs.testing_mode != 'yes' && !inputs.site_only
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔄 Sync with latest main
+        run: |
+          echo "🔄 Configuring git..."
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "🔄 Switching to main and pulling latest changes..."
+          git checkout main
+          git pull origin main
+
+          echo "✅ Synced with latest main branch"
+
+      - name: 🏷️ Create per-volume release tag(s)
+        run: |
+          # Tag each volume independently. We REFUSE to retag (no force-
+          # delete on remote) because that would silently overwrite a
+          # previously-shipped release; if a tag already exists for the
+          # version we're trying to ship, that's a maintainer error and
+          # the publish should fail loudly.
+
+          NEW_VOL1="${{ needs.validate-inputs.outputs.new_vol1_version }}"
+          NEW_VOL2="${{ needs.validate-inputs.outputs.new_vol2_version }}"
+          DESCRIPTION="${{ inputs.description }}"
+
+          create_tag() {
+            local tag="$1"
+            local label="$2"
+            [ -z "$tag" ] && return 0
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null \
+               || git ls-remote --tags origin | grep -q "refs/tags/${tag}$"; then
+              echo "❌ Tag $tag already exists. Refusing to overwrite a"
+              echo "   previously-shipped release. If this is intentional,"
+              echo "   delete the tag manually first."
+              exit 1
+            fi
+            echo "🏷️ Creating $label tag: $tag"
+            git tag -a "$tag" -m "Release $tag: $DESCRIPTION"
+            git push origin "$tag"
+            echo "✅ Pushed $tag"
+          }
+
+          create_tag "$NEW_VOL1" "Volume I"
+          create_tag "$NEW_VOL2" "Volume II"
+
+      - name: 📋 Tag summary
+        run: |
+          echo "## 🏷️ Release tags created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          [ -n "${{ needs.validate-inputs.outputs.new_vol1_version }}" ] && \
+            echo "- **Volume I:**  \`${{ needs.validate-inputs.outputs.new_vol1_version }}\`" >> $GITHUB_STEP_SUMMARY
+          [ -n "${{ needs.validate-inputs.outputs.new_vol2_version }}" ] && \
+            echo "- **Volume II:** \`${{ needs.validate-inputs.outputs.new_vol2_version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Description: ${{ inputs.description }}" >> $GITHUB_STEP_SUMMARY
+
+  download-and-deploy-artifacts:
+    name: '📦 Download Artifacts & Deploy to GitHub Pages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [validate-inputs, call-production-build]
+    if: |
+      always()
+      && inputs.confirm == 'PUBLISH'
+      && inputs.testing_mode != 'yes'
+      && needs.validate-inputs.result == 'success'
+      && needs.call-production-build.result == 'success'
+    concurrency:
+      group: gh-pages-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: write # Allow write access to repository for gh-pages push
+      pages: write    # Allow GitHub Pages deployment
+      actions: read   # Allow reading of workflow artifacts
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔍 Validate API Contract
+        run: |
+          echo "🔍 Validating artifact names from API..."
+          VOL1_HTML="${{ needs.call-production-build.outputs.linux_html_vol1_artifact }}"
+          VOL2_HTML="${{ needs.call-production-build.outputs.linux_html_vol2_artifact }}"
+          echo "📘 Vol1 HTML artifact: '$VOL1_HTML'"
+          echo "📙 Vol2 HTML artifact: '$VOL2_HTML'"
+          if [ -z "$VOL1_HTML" ] || [ -z "$VOL2_HTML" ]; then
+            echo "❌ CRITICAL: Volume artifact names missing from build workflow outputs"
+            exit 1
+          fi
+          echo "✅ API contract validated for volume artifacts"
+
+      # =================================================================
+      # Volume I Artifacts (when deploy_target is vol1 or all)
+      # =================================================================
+      - name: 📦 Download Volume I HTML Artifacts
+        if: inputs.deploy_target == 'vol1' || inputs.deploy_target == 'all'
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.call-production-build.outputs.linux_html_vol1_artifact }}
+          path: ./html-vol1-temp
+        continue-on-error: true
+
+      - name: 📦 Download Volume I PDF Artifacts
+        if: inputs.deploy_target == 'vol1' || inputs.deploy_target == 'all'
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.call-production-build.outputs.linux_pdf_vol1_artifact }}
+          path: ./pdf-vol1-temp
+        continue-on-error: true
+
+      - name: 📦 Download Volume I EPUB Artifacts
+        if: inputs.deploy_target == 'vol1' || inputs.deploy_target == 'all'
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.call-production-build.outputs.linux_epub_vol1_artifact }}
+          path: ./epub-vol1-temp
+        continue-on-error: true
+
+      # =================================================================
+      # Volume II Artifacts (when deploy_target is vol2 or all)
+      # =================================================================
+      - name: 📦 Download Volume II HTML Artifacts
+        if: inputs.deploy_target == 'vol2' || inputs.deploy_target == 'all'
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.call-production-build.outputs.linux_html_vol2_artifact }}
+          path: ./html-vol2-temp
+        continue-on-error: true
+
+      - name: 📦 Download Volume II PDF Artifacts
+        if: inputs.deploy_target == 'vol2' || inputs.deploy_target == 'all'
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.call-production-build.outputs.linux_pdf_vol2_artifact }}
+          path: ./pdf-vol2-temp
+        continue-on-error: true
+
+      - name: 📦 Download Volume II EPUB Artifacts
+        if: inputs.deploy_target == 'vol2' || inputs.deploy_target == 'all'
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.call-production-build.outputs.linux_epub_vol2_artifact }}
+          path: ./epub-vol2-temp
+        continue-on-error: true
+
+      - name: 📋 Verify Downloaded Artifacts
+        run: |
+          echo "📦 Verifying downloaded artifacts..."
+          DEPLOY_TARGET="${{ inputs.deploy_target }}"
+          if [[ "$DEPLOY_TARGET" == "vol1" || "$DEPLOY_TARGET" == "all" ]] && [ ! -d "html-vol1-temp" ]; then
+            echo "❌ Required Volume I HTML artifact was not downloaded."
+            exit 1
+          fi
+          if [[ "$DEPLOY_TARGET" == "vol2" || "$DEPLOY_TARGET" == "all" ]] && [ ! -d "html-vol2-temp" ]; then
+            echo "❌ Required Volume II HTML artifact was not downloaded."
+            exit 1
+          fi
+
+          # =================================================================
+          # Prepare Volume I site (if artifacts exist)
+          # =================================================================
+          if [ -d "html-vol1-temp" ]; then
+            echo "🔄 Preparing Volume I site..."
+            mkdir -p vol1-site
+
+            # Find HTML content
+            if [ -d "html-vol1-temp/html-vol1" ]; then
+              cp -r html-vol1-temp/html-vol1/* vol1-site/
+            else
+              cp -r html-vol1-temp/* vol1-site/
+            fi
+
+            mkdir -p vol1-site/assets/downloads
+
+            # Copy Vol1 PDF if available (use exact name to avoid picking up figure PDFs)
+            VOL1_PDF=$(find pdf-vol1-temp -name "Machine-Learning-Systems-Vol1.pdf" -type f 2>/dev/null | head -1)
+            if [ -n "$VOL1_PDF" ] && [ -f "$VOL1_PDF" ]; then
+              cp "$VOL1_PDF" vol1-site/assets/downloads/Machine-Learning-Systems-Vol1.pdf
+              echo "  ✅ Vol1 PDF: Ready ($(du -h "$VOL1_PDF" | cut -f1))"
+            fi
+
+            # Copy Vol1 EPUB if available
+            VOL1_EPUB=$(find epub-vol1-temp -name "Machine-Learning-Systems-Vol1.epub" -type f 2>/dev/null | head -1)
+            if [ -n "$VOL1_EPUB" ] && [ -f "$VOL1_EPUB" ]; then
+              cp "$VOL1_EPUB" vol1-site/assets/downloads/Machine-Learning-Systems-Vol1.epub
+              echo "  ✅ Vol1 EPUB: Ready"
+            fi
+
+            echo "✅ Volume I site prepared"
+          fi
+
+          # =================================================================
+          # Prepare Volume II site (if artifacts exist)
+          # =================================================================
+          if [ -d "html-vol2-temp" ]; then
+            echo "🔄 Preparing Volume II site..."
+            mkdir -p vol2-site
+
+            # Find HTML content
+            if [ -d "html-vol2-temp/html-vol2" ]; then
+              cp -r html-vol2-temp/html-vol2/* vol2-site/
+            else
+              cp -r html-vol2-temp/* vol2-site/
+            fi
+
+            mkdir -p vol2-site/assets/downloads
+
+            # Copy Vol2 PDF if available (use exact name to avoid picking up figure PDFs)
+            VOL2_PDF=$(find pdf-vol2-temp -name "Machine-Learning-Systems-Vol2.pdf" -type f 2>/dev/null | head -1)
+            if [ -n "$VOL2_PDF" ] && [ -f "$VOL2_PDF" ]; then
+              cp "$VOL2_PDF" vol2-site/assets/downloads/Machine-Learning-Systems-Vol2.pdf
+              echo "  ✅ Vol2 PDF: Ready ($(du -h "$VOL2_PDF" | cut -f1))"
+            fi
+
+            # Copy Vol2 EPUB if available
+            VOL2_EPUB=$(find epub-vol2-temp -name "Machine-Learning-Systems-Vol2.epub" -type f 2>/dev/null | head -1)
+            if [ -n "$VOL2_EPUB" ] && [ -f "$VOL2_EPUB" ]; then
+              cp "$VOL2_EPUB" vol2-site/assets/downloads/Machine-Learning-Systems-Vol2.epub
+              echo "  ✅ Vol2 EPUB: Ready"
+            fi
+
+            echo "✅ Volume II site prepared"
+          fi
+
+          # =================================================================
+          # Landing page is rendered separately (see next step)
+          # =================================================================
+          echo "ℹ️ Landing page will be rendered in next step"
+
+      - name: 🔧 Flatten volume URL structure
+        # Quarto builds chapters at contents/vol{N}/{chapter}/{chapter}.html (depth 3).
+        # This step moves them to {chapter}/{chapter}.html (depth 1) so deployed URLs
+        # are mlsysbook.ai/vol{N}/{chapter}/{chapter}.html instead of the double-nested
+        # mlsysbook.ai/vol{N}/contents/vol{N}/{chapter}/{chapter}.html.
+        # See .github/scripts/flatten-vol-urls.sh for details.
+        run: |
+          if [ -d "vol1-site" ]; then
+            bash .github/scripts/flatten-vol-urls.sh vol1-site vol1
+          fi
+          if [ -d "vol2-site" ]; then
+            bash .github/scripts/flatten-vol-urls.sh vol2-site vol2
+          fi
+
+      - name: 🐍 Setup Python (for release manifests)
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ vars.PYTHON_VERSION || '3.12' }}
+
+      - name: 📦 Emit per-volume release manifests
+        # Drops release-manifest.json into vol1-site/ and vol2-site/ so
+        # https://mlsysbook.ai/{vol1,vol2}/release-manifest.json resolves.
+        # The footer pill (added to _quarto-html-vol{1,2}.yml in the same
+        # PR) fetches this URL at runtime to render "vX.Y.Z · date".
+        # Hash inputs are the per-volume content directories — what
+        # actually defines a release of that volume. Frontmatter is
+        # shared across volumes and intentionally NOT in the hash, so
+        # editing the dedication doesn't bump both volume hashes.
+        env:
+          NEW_VOL1: ${{ needs.validate-inputs.outputs.new_vol1_version }}
+          NEW_VOL2: ${{ needs.validate-inputs.outputs.new_vol2_version }}
+          PREV_VOL1: ${{ needs.validate-inputs.outputs.previous_vol1_version }}
+          PREV_VOL2: ${{ needs.validate-inputs.outputs.previous_vol2_version }}
+          SITE_ONLY: ${{ inputs.site_only }}
+        run: |
+          set -euo pipefail
+
+          emit_manifest() {
+            local site_dir="$1"
+            local volume="$2"        # vol1 or vol2
+            local new_version="$3"   # e.g. "vol1-v0.6.0" — may be empty
+            if [ ! -d "$site_dir" ]; then
+              echo "⏭ $site_dir not present — skipping ${volume} manifest."
+              return 0
+            fi
+            if [ -z "$new_version" ]; then
+              echo "⚠️ ${volume} version unset; emitting manifest with previous tag."
+              new_version=$(git tag -l "${volume}-v*" | sort -V | tail -n1)
+              new_version="${new_version:-${volume}-v0.0.0}"
+            fi
+            local release_id
+            release_id=$(echo "$new_version" \
+              | sed -E "s/^${volume}-v//")
+
+            local content_dir="book/quarto/contents/${volume}"
+            if [ ! -d "$content_dir" ]; then
+              echo "❌ $content_dir does not exist — cannot hash ${volume} content."
+              return 1
+            fi
+
+            local release_hash
+            release_hash=$(python3 scripts/version/release.py compute-hash \
+              --paths "$content_dir" \
+              --exclude '_build' '__pycache__' '*.pyc' '.DS_Store' \
+                       '.ipynb_checkpoints' '.quarto')
+
+            python3 scripts/version/release.py emit-manifest \
+              --output "${site_dir}/release-manifest.json" \
+              --project "book-${volume}" \
+              --tier A \
+              --release-id "$release_id" \
+              --release-hash "$release_hash"
+
+            echo "📦 ${volume}: v${release_id} (hash ${release_hash:0:12}) → ${site_dir}/release-manifest.json"
+          }
+
+          MANIFEST_VOL1="$NEW_VOL1"
+          MANIFEST_VOL2="$NEW_VOL2"
+          if [ "$SITE_ONLY" = "true" ]; then
+            MANIFEST_VOL1="$PREV_VOL1"
+            MANIFEST_VOL2="$PREV_VOL2"
+            echo "ℹ️ site_only=true — keeping release manifests at $MANIFEST_VOL1 / $MANIFEST_VOL2"
+          fi
+
+          emit_manifest "vol1-site" "vol1" "$MANIFEST_VOL1"
+          emit_manifest "vol2-site" "vol2" "$MANIFEST_VOL2"
+
+      - name: 🔧 Setup Quarto (for landing page)
+        if: inputs.deploy_target == 'all'
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: 🏠 Build Landing Page
+        if: inputs.deploy_target == 'all'
+        run: |
+          if [ -d "site/landing" ] && [ -f "site/landing/index.qmd" ]; then
+            echo "🏗️ Rendering landing page with Quarto..."
+            cd site/landing
+            quarto render
+            echo "✅ Landing page rendered"
+            ls -la _build/
+          else
+            echo "⚠️ Landing page source not found — will use redirect fallback"
+          fi
+
+      - name: 🚀 Deploy Combined Site to GitHub Pages (Production)
+        run: |
+          echo "🚀 Deploying to GitHub Pages..."
+          echo "🌐 Production URL: https://mlsysbook.ai/"
+          echo "📦 Deploy target: ${{ inputs.deploy_target }}"
+
+          DEPLOY_TARGET="${{ inputs.deploy_target }}"
+
+          # Each volume gets its own top-level path on gh-pages, sibling to
+          # /labs/, /kits/, /tinytorch/, etc. The dev preview reads the same
+          # two variables so /vol1/ and /vol2/ resolve identically on both
+          # targets. The landing page's volume cards (site/index.qmd) and the
+          # navbar/footer/announcement absolute URLs link to these paths.
+          VOL1_PATH="${{ vars.VOL1_DEPLOY_PATH }}"
+          VOL2_PATH="${{ vars.VOL2_DEPLOY_PATH }}"
+          if [ -z "$VOL1_PATH" ] || [ -z "$VOL2_PATH" ]; then
+            echo "❌ vars.VOL1_DEPLOY_PATH or vars.VOL2_DEPLOY_PATH is unset — refusing to run destructive rm with empty deploy path."
+            exit 1
+          fi
+          echo "📂 Volume deploy paths: /$VOL1_PATH/ and /$VOL2_PATH/ (from vars.VOL1_DEPLOY_PATH, vars.VOL2_DEPLOY_PATH)"
+
+          # Clone gh-pages branch
+          git clone --depth=1 --branch=gh-pages https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git gh-pages-repo
+
+          cd gh-pages-repo
+
+          # Configure git identity inside the repository
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # =================================================================
+          # SUBDIRECTORY DEPLOYMENT STRUCTURE
+          # =================================================================
+          # Each subsite has its own top-level directory:
+          #   /                - Landing page (AI Engineering)
+          #   /$VOL1_PATH/     - Volume I  (vars.VOL1_DEPLOY_PATH=vol1 → /vol1/)
+          #   /$VOL2_PATH/     - Volume II (vars.VOL2_DEPLOY_PATH=vol2 → /vol2/)
+          #   /tinytorch/      - TinyTorch framework
+          #   /kits/           - Hardware Kits
+          #   /labs/           - Labs
+          #   /book/           - LEGACY single-volume textbook (untouched here;
+          #                      to be replaced post-cutover with a chooser)
+          # =================================================================
+
+          # Clean up stale root-level files from the pre-subdir-migration era.
+          # IMPORTANT: do NOT delete root paths that belong to site-publish-live.yml:
+          #   assets/  site_libs/  404.html  search.json  sitemap.xml
+          #   site.webmanifest  landing*.css  neural-bg.js  listings.json  robots.txt
+          # The landing page (mlsysbook.ai/index.html) references those at root.
+          # This workflow's job is /vol1/ and /vol2/ — anything else at root is
+          # owned by another publish workflow and must be preserved here.
+          echo "🧹 Removing stale root-level files (pre-subdir-migration only)..."
+          rm -rf contents/ tools/
+          rm -f _redirects netlify.toml
+
+          # Remove development artifacts and symlinks that break GitHub Pages
+          echo "🧹 Removing development artifacts..."
+          rm -rf __pycache__/ .vscode/ .tito/ benchmark_results/ mlsysbook.egg-info/
+          rm -f .luarc.json
+          rm -rf .claude .github  # Remove symlinks and dev-only directories
+          echo "✅ Stale files removed"
+
+          # =================================================================
+          # Deploy Volume I to /$VOL1_PATH/ (if target is vol1 or all)
+          # =================================================================
+          if [[ "$DEPLOY_TARGET" == "vol1" || "$DEPLOY_TARGET" == "all" ]]; then
+            if [ -d "../vol1-site" ]; then
+              echo "📦 Deploying Volume I to /$VOL1_PATH/..."
+              rm -rf "$VOL1_PATH/"
+              mkdir -p "$VOL1_PATH"
+              cp -r ../vol1-site/* "$VOL1_PATH/"
+              echo "✅ Volume I deployed to /$VOL1_PATH/"
+            else
+              echo "⚠️ Volume I site not found - skipping"
+            fi
+          fi
+
+          # =================================================================
+          # Deploy Volume II to /$VOL2_PATH/ (if target is vol2 or all)
+          # =================================================================
+          if [[ "$DEPLOY_TARGET" == "vol2" || "$DEPLOY_TARGET" == "all" ]]; then
+            if [ -d "../vol2-site" ]; then
+              echo "📦 Deploying Volume II to /$VOL2_PATH/..."
+              rm -rf "$VOL2_PATH/"
+              mkdir -p "$VOL2_PATH"
+              cp -r ../vol2-site/* "$VOL2_PATH/"
+              echo "✅ Volume II deployed to /$VOL2_PATH/"
+            else
+              echo "⚠️ Volume II site not found - skipping"
+            fi
+          fi
+
+          # Root landing page (mlsysbook.ai/) is owned by site-publish-live.yml.
+          # This workflow only deploys /$VOL1_PATH/ and /$VOL2_PATH/; it must
+          # not write a root index.html (doing so would clobber the landing
+          # page that site-publish-live.yml is responsible for).
+
+          # Ensure CNAME file exists at root for custom domain
+          if [ ! -f "CNAME" ]; then
+            echo "mlsysbook.ai" > CNAME
+            echo "✅ CNAME file created for mlsysbook.ai"
+          else
+            echo "✅ CNAME file already exists"
+          fi
+
+          # Ensure .nojekyll exists at root
+          touch .nojekyll
+
+          echo "📊 Deployed content structure:"
+          ls -la | head -15
+          for VPATH in "$VOL1_PATH" "$VOL2_PATH"; do
+            if [ -d "$VPATH" ]; then
+              echo "📊 /$VPATH/ contents:"
+              ls -la "$VPATH/" | head -10
+            fi
+          done
+          if [ -d "vol1" ]; then
+            echo "📊 Vol1 directory contents:"
+            ls -la vol1/ | head -10
+          fi
+          if [ -d "vol2" ]; then
+            echo "📊 Vol2 directory contents:"
+            ls -la vol2/ | head -10
+          fi
+
+          # Add all files to git
+          git add .
+
+          # Check if there are actually changes to commit
+          echo "🔍 Checking for changes to deploy..."
+          if git diff --cached --quiet; then
+            echo "❌ CRITICAL: No changes detected in staging area!"
+            echo "🔧 This indicates the site content wasn't properly copied or is identical to existing content."
+            echo "📊 Current directory contents:"
+            ls -la | head -10
+            exit 1
+          else
+            echo "✅ Changes detected - proceeding with deployment"
+            CHANGED_FILES=$(git diff --cached --name-only | wc -l)
+            echo "📊 Files to be deployed: $CHANGED_FILES"
+          fi
+
+          RELEASE_LABEL="${{ needs.validate-inputs.outputs.new_version }}"
+          if [ "${{ inputs.site_only }}" = "true" ]; then
+            RELEASE_LABEL="${{ needs.validate-inputs.outputs.previous_version }}"
+            echo "ℹ️ site_only=true — deployment commit will use current release label: $RELEASE_LABEL"
+          fi
+
+          # Commit with comprehensive validation
+          echo "📝 Creating deployment commit..."
+          COMMIT_MSG="🚀 Deploy release $RELEASE_LABEL to /$VOL1_PATH/ + /$VOL2_PATH/ from commit ${{ github.sha }}
+
+          Two-volume textbook with PDF and EPUB assets for download.
+
+          - Vol1 HTML: /$VOL1_PATH/
+          - Vol1 PDF/EPUB: /$VOL1_PATH/assets/downloads/
+          - Vol2 HTML: /$VOL2_PATH/
+          - Vol2 PDF/EPUB: /$VOL2_PATH/assets/downloads/
+          - Release: $RELEASE_LABEL
+          - Files updated: $CHANGED_FILES"
+
+          if git commit -m "$COMMIT_MSG"; then
+            echo "✅ Commit created successfully"
+            COMMIT_HASH=$(git rev-parse HEAD)
+            echo "📋 Commit hash: $COMMIT_HASH"
+          else
+            echo "❌ CRITICAL: Failed to create commit!"
+            echo "🔧 Git status:"
+            git status
+            exit 1
+          fi
+
+          # Push with validation
+          echo "🚀 Pushing to gh-pages branch..."
+          if git push origin gh-pages; then
+            echo "✅ Push successful!"
+
+            # Verify the push actually updated the remote
+            echo "🔍 Verifying remote update..."
+            REMOTE_HASH=$(git ls-remote origin gh-pages | cut -f1)
+            if [ "$COMMIT_HASH" = "$REMOTE_HASH" ]; then
+              echo "✅ Remote branch updated successfully"
+              echo "📋 Remote commit hash matches local: $REMOTE_HASH"
+            else
+              echo "⚠️ WARNING: Remote hash doesn't match local commit"
+              echo "📋 Local: $COMMIT_HASH"
+              echo "📋 Remote: $REMOTE_HASH"
+            fi
+          else
+            echo "❌ CRITICAL: Failed to push to gh-pages!"
+            echo "🔧 This could be due to permissions or network issues."
+            exit 1
+          fi
+
+          echo ""
+          echo "🎉 GitHub Pages deployment completed successfully!"
+          echo "📊 Deployment Summary:"
+          echo "  - Files updated: $CHANGED_FILES"
+          echo "  - Commit hash: $COMMIT_HASH"
+          echo "  - Branch: gh-pages"
+          echo "  - Deploy paths: /$VOL1_PATH/ and /$VOL2_PATH/"
+          echo ""
+          echo "🌐 Site URLs:"
+          echo "  - Volume I:  https://mlsysbook.ai/$VOL1_PATH/"
+          echo "  - Volume II: https://mlsysbook.ai/$VOL2_PATH/"
+          echo "  - TinyTorch: https://mlsysbook.ai/tinytorch/"
+          echo "  - Hardware Kits: https://mlsysbook.ai/kits/"
+          echo ""
+          echo "📄 Direct Asset Links:"
+          echo "  - Vol1 PDF:  https://mlsysbook.ai/$VOL1_PATH/assets/downloads/Machine-Learning-Systems-Vol1.pdf"
+          echo "  - Vol1 EPUB: https://mlsysbook.ai/$VOL1_PATH/assets/downloads/Machine-Learning-Systems-Vol1.epub"
+          echo "  - Vol2 PDF:  https://mlsysbook.ai/$VOL2_PATH/assets/downloads/Machine-Learning-Systems-Vol2.pdf"
+          echo "  - Vol2 EPUB: https://mlsysbook.ai/$VOL2_PATH/assets/downloads/Machine-Learning-Systems-Vol2.epub"
+          echo ""
+          echo "⏰ Note: Changes may take 1-5 minutes to appear due to CDN caching."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📤 Collect release assets (PDF + EPUB per volume)
+        run: |
+          mkdir -p release-assets
+
+          # Collect Vol1 PDF (use exact name to avoid figure PDFs in artifact)
+          VOL1_PDF=$(find pdf-vol1-temp -name "Machine-Learning-Systems-Vol1.pdf" -type f 2>/dev/null | head -1)
+          if [ -n "$VOL1_PDF" ]; then
+            cp "$VOL1_PDF" release-assets/Machine-Learning-Systems-Vol1.pdf
+            echo "✅ Vol1 PDF: $(du -h "$VOL1_PDF" | cut -f1)"
+          fi
+
+          # Collect Vol2 PDF
+          VOL2_PDF=$(find pdf-vol2-temp -name "Machine-Learning-Systems-Vol2.pdf" -type f 2>/dev/null | head -1)
+          if [ -n "$VOL2_PDF" ]; then
+            cp "$VOL2_PDF" release-assets/Machine-Learning-Systems-Vol2.pdf
+            echo "✅ Vol2 PDF: $(du -h "$VOL2_PDF" | cut -f1)"
+          fi
+
+          # Collect Vol1 EPUB
+          VOL1_EPUB=$(find epub-vol1-temp -name "Machine-Learning-Systems-Vol1.epub" -type f 2>/dev/null | head -1)
+          if [ -n "$VOL1_EPUB" ]; then
+            cp "$VOL1_EPUB" release-assets/Machine-Learning-Systems-Vol1.epub
+            echo "✅ Vol1 EPUB: $(du -h "$VOL1_EPUB" | cut -f1)"
+          fi
+
+          # Collect Vol2 EPUB
+          VOL2_EPUB=$(find epub-vol2-temp -name "Machine-Learning-Systems-Vol2.epub" -type f 2>/dev/null | head -1)
+          if [ -n "$VOL2_EPUB" ]; then
+            cp "$VOL2_EPUB" release-assets/Machine-Learning-Systems-Vol2.epub
+            echo "✅ Vol2 EPUB: $(du -h "$VOL2_EPUB" | cut -f1)"
+          fi
+
+          echo "📦 Release assets:"
+          ls -la release-assets/
+
+      - name: 📤 Upload release assets artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets
+          path: release-assets/
+          if-no-files-found: warn
+
+  generate-release-notes:
+    name: '📝 Generate Release Notes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [validate-inputs, download-and-deploy-artifacts]
+    if: inputs.confirm == 'PUBLISH' && inputs.testing_mode != 'yes' && !inputs.site_only
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📄 Download release assets from previous job
+        uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: ./release-assets
+
+      - name: 📝 Generate Release Notes
+        run: |
+          echo "📝 Generating release notes..."
+          echo "🤖 AI Enhancement Mode: ${{ inputs.ai_generated_notes }}"
+          if [ "${{ inputs.ai_generated_notes }}" = "yes" ]; then
+            echo "   ✅ Will use AI to enhance git log (if AI system is available)"
+          else
+            echo "   📋 Will use git log only (clean, reliable format)"
+          fi
+          echo ""
+
+          # Generate git log between versions
+          PREVIOUS_VERSION="${{ needs.validate-inputs.outputs.previous_version }}"
+          CURRENT_VERSION="${{ needs.validate-inputs.outputs.new_version }}"
+
+          echo "📊 Generating git log from $PREVIOUS_VERSION to current commit..."
+
+          # Create detailed git log
+          echo "# Release Notes for $CURRENT_VERSION" > git_changes.md
+          echo "" >> git_changes.md
+          echo "## Changes since $PREVIOUS_VERSION" >> git_changes.md
+          echo "" >> git_changes.md
+
+          # Get commit log with details
+          if git rev-parse "$PREVIOUS_VERSION" >/dev/null 2>&1; then
+            echo "✅ Previous version tag $PREVIOUS_VERSION found"
+
+            # Summary format for AI processing
+            git log --oneline ${PREVIOUS_VERSION}..HEAD > git_log_summary.txt
+
+            # Detailed format for inclusion in release
+            echo "### Commit Summary:" >> git_changes.md
+            git log --oneline ${PREVIOUS_VERSION}..HEAD >> git_changes.md
+            echo "" >> git_changes.md
+
+            echo "### Detailed Changes:" >> git_changes.md
+            git log --pretty=format:"- **%s** (%h) by %an%n  %b" ${PREVIOUS_VERSION}..HEAD >> git_changes.md
+
+            echo "📊 Found $(git rev-list --count ${PREVIOUS_VERSION}..HEAD) commits since $PREVIOUS_VERSION"
+          else
+            echo "⚠️ Previous version tag $PREVIOUS_VERSION not found, using all commits"
+            git log --oneline -20 > git_log_summary.txt
+            echo "### Recent Commits:" >> git_changes.md
+            git log --oneline -20 >> git_changes.md
+          fi
+
+          echo "✅ Git log generated and saved to files"
+
+          if [ "${{ inputs.ai_generated_notes }}" = "yes" ]; then
+            echo ""
+            echo "🤖 AI Enhancement Mode Selected - installing Ollama for release notes..."
+
+            # Install Ollama for this job (each job runs in isolation)
+            echo "🤖 Installing Ollama..."
+            if curl -fsSL https://ollama.ai/install.sh | sh; then
+              echo "✅ Ollama installed successfully"
+
+              # Start Ollama service
+              echo "🚀 Starting Ollama service..."
+              ollama serve &
+
+              # Wait for service to be ready
+              echo "⏳ Waiting for Ollama service..."
+              OLLAMA_READY=false
+              for i in {1..30}; do
+                if ollama list >/dev/null 2>&1; then
+                  echo "✅ Ollama service ready after ${i}0 seconds"
+                  OLLAMA_READY=true
+                  break
+                fi
+                echo "⏳ Waiting... (${i}/30)"
+                sleep 10
+              done
+
+              if [ "$OLLAMA_READY" = "true" ]; then
+                # Pull the model
+                MODEL="${{ env.DEFAULT_AI_MODEL }}"
+                echo "📦 Pulling AI model: $MODEL"
+                if timeout ${{ env.OLLAMA_TIMEOUT }} ollama pull $MODEL; then
+                  echo "✅ Model $MODEL ready for release notes generation"
+                  AI_GENERATION_FAILED=false
+                else
+                  echo "⚠️ Model pull failed, using git log only"
+                  AI_GENERATION_FAILED=true
+                fi
+              else
+                echo "⚠️ Ollama service failed to start, using git log only"
+                AI_GENERATION_FAILED=true
+              fi
+            else
+              echo "⚠️ Ollama installation failed, using git log only"
+              AI_GENERATION_FAILED=true
+            fi
+
+            # Generate AI-enhanced release notes using git log
+            if [ "$AI_GENERATION_FAILED" != "true" ]; then
+              echo "📝 Generating AI-enhanced release notes from git log..."
+
+              # Create AI prompt with git log content
+              {
+                echo "Generate release notes for MLSysBook ${{ needs.validate-inputs.outputs.new_version }} - an open-source Machine Learning Systems textbook."
+                echo ""
+                echo "AUDIENCE: Students, researchers, practitioners, contributors, and educators using the textbook"
+                echo "PURPOSE: Professional announcement of improvements and enhancements in this release"
+                echo ""
+                echo "RELEASE DESCRIPTION: ${{ inputs.description }}"
+                echo "RELEASE TYPE: ${{ inputs.release_type }}"
+                echo ""
+                echo "COMMITS:"
+                cat git_log_summary.txt
+                echo ""
+                echo "STYLE REQUIREMENTS:"
+                echo "- Academic, professional tone following established MLSysBook release pattern"
+                echo "- Focus on USER VALUE: what readers, educators, and students gain"
+                echo "- Educational impact: how this improves learning outcomes"
+                echo "- Clear structure with appropriate emojis for readability"
+                echo "- NO development metrics (commits, technical debt, internal processes)"
+                echo "- Write like a scholarly publication announcement, not marketing material"
+                echo ""
+                echo "LANGUAGE GUIDELINES:"
+                echo "EXCELLENT examples of user-focused language:"
+                echo "✅ 'Enhanced visualizations with improved clarity and understanding'"
+                echo "✅ 'Streamlined mathematical notation for better accessibility'"
+                echo "✅ 'Updated code examples reflecting latest ML frameworks'"
+                echo "✅ 'Improved accessibility features for diverse learners'"
+                echo "✅ 'Faster build process for reliable access'"
+                echo ""
+                echo "AVOID these generic/internal phrases:"
+                echo "❌ 'Various improvements across chapters'"
+                echo "❌ 'Enhanced development workflow'"
+                echo "❌ 'Updated content structure'"
+                echo "❌ 'Fixed issues and bugs'"
+                echo "❌ 'Improved codebase quality'"
+                echo "❌ ANY mention of specific chapter names or numbers"
+                echo ""
+                echo "REQUIRED STRUCTURE:"
+                echo "# Release ${{ needs.validate-inputs.outputs.new_version }}: [Professional Title Based on Main Theme]"
+                echo "IMPORTANT: Use the EXACT version number ${{ needs.validate-inputs.outputs.new_version }} in the title"
+                echo ""
+                echo "[Professional intro paragraph explaining this release's educational focus and value]"
+                echo ""
+                echo "## ✨ Major Features"
+                echo ""
+                echo "### 📖 Content Improvements"
+                echo "* [3-5 specific content enhancements that improve learning experience]"
+                echo "* Focus on: visualizations, explanations, examples, mathematical clarity"
+                echo ""
+                echo "### 🛠️ Technical Excellence"
+                echo "* [3-5 infrastructure improvements that users actually notice]"
+                echo "* Focus on: accessibility, performance, reliability, user experience"
+                echo ""
+                echo "### 🎓 Educational Innovation"
+                echo "* [2-3 improvements specifically for educators and learners]"
+                echo "* Focus on: teaching features, learning aids, practical applications"
+                echo ""
+                echo "## 🌟 Key Achievements"
+                echo "[Highlight the most impactful improvements for different user groups]"
+                echo ""
+                echo "## 🔬 Educational Impact"
+                echo "[Explain how these changes improve learning outcomes and educational value]"
+                echo ""
+                echo "## 🌐 Access Your Enhanced Textbook"
+                echo "- 📖 **Online Version**: [mlsysbook.ai](https://mlsysbook.ai)"
+                echo "- 📄 **PDF Download**: Available from release assets"
+                echo "- 📚 **EPUB Version**: Available from release assets"
+                echo "- 🧪 **Labs & Exercises**: Hands-on learning materials"
+                echo ""
+                echo "## 📞 Community & Contributions"
+                echo "This release incorporates feedback from educators, students, and practitioners. We welcome continued engagement through our [GitHub repository](https://github.com/harvard-edge/cs249r_book)."
+                echo ""
+                echo "---"
+                echo "*Development Period*: [Timeframe based on release type]"
+                echo "*Repository*: [harvard-edge/cs249r_book](https://github.com/harvard-edge/cs249r_book)"
+                echo "*Focus*: [Main theme of this release]"
+              } > ai_prompt.txt
+
+              # Generate AI release notes
+              if ollama run $MODEL < ai_prompt.txt > ai_release_notes.md 2>/dev/null; then
+                echo "✅ AI release notes generated successfully"
+
+                # Use AI-generated notes directly (they include proper header)
+                {
+                  cat ai_release_notes.md
+                  echo ""
+                  echo "---"
+                  echo ""
+                  echo "## Full Change Log"
+                  echo ""
+                  cat git_changes.md
+                } > "release_notes_${{ needs.validate-inputs.outputs.new_version }}.md"
+              else
+                echo "⚠️ AI generation failed, using git log only"
+                AI_GENERATION_FAILED=true
+              fi
+            fi
+
+            # If AI generation failed, fall back to git log only
+            if [ "$AI_GENERATION_FAILED" = "true" ]; then
+              echo "📋 Falling back to git log only release notes"
+              {
+                echo "# Release ${{ needs.validate-inputs.outputs.new_version }}: ${{ inputs.description }}"
+                echo ""
+                echo "## Overview"
+                echo "This ${{ inputs.release_type }} release includes the following changes:"
+                echo ""
+                cat git_changes.md
+              } > "release_notes_${{ needs.validate-inputs.outputs.new_version }}.md"
+            fi
+          else
+            echo ""
+            echo "📋 Git Log Only Mode - creating clean release notes from git history"
+
+            # Create release notes from git log only
+            {
+              echo "# Release ${{ needs.validate-inputs.outputs.new_version }}: ${{ inputs.description }}"
+              echo ""
+              echo "## Overview"
+              echo "This ${{ inputs.release_type }} release includes the following changes:"
+              echo ""
+              cat git_changes.md
+            } > "release_notes_${{ needs.validate-inputs.outputs.new_version }}.md"
+          fi
+
+          # Show final release notes
+          if [ -f "release_notes_${{ needs.validate-inputs.outputs.new_version }}.md" ]; then
+            echo "✅ Release notes generated successfully"
+            echo "📄 Release notes file details:"
+            ls -la "release_notes_${{ needs.validate-inputs.outputs.new_version }}.md"
+            echo "📝 Release notes content (first 50 lines):"
+            head -50 "release_notes_${{ needs.validate-inputs.outputs.new_version }}.md"
+          else
+            echo "❌ Failed to generate release notes - creating basic fallback"
+            # Create a basic fallback release notes file
+            {
+              echo "# Release ${{ needs.validate-inputs.outputs.new_version }}: ${{ inputs.description }}"
+              echo ""
+              echo "## Release Information"
+              echo "- **Version**: ${{ needs.validate-inputs.outputs.new_version }}"
+              echo "- **Type**: ${{ inputs.release_type }} release"
+              echo "- **Description**: ${{ inputs.description }}"
+              echo ""
+              echo "## Changes"
+              echo "Please see the git commit history for detailed changes."
+            } > "release_notes_${{ needs.validate-inputs.outputs.new_version }}.md"
+            echo "✅ Basic release notes created as fallback"
+          fi
+
+      - name: 📤 Upload Release Notes Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: release_notes_${{ needs.validate-inputs.outputs.new_version }}.md
+
+      - name: 📤 Upload Git Log Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: git-changes
+          path: |
+            git_changes.md
+            git_log_summary.txt
+            ai_release_notes.md
+
+  create-release:
+    name: '📦 Create GitHub Release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [validate-inputs, generate-release-notes, create-tag]
+    if: inputs.confirm == 'PUBLISH' && inputs.testing_mode != 'yes' && !inputs.site_only
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📦 Download release assets
+        uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: ./release-assets
+
+      - name: 📝 Download release notes
+        uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+          path: ./
+
+      - name: 📦 Create GitHub Release with PDF
+        run: |
+          echo "📦 Creating GitHub Release ${{ needs.validate-inputs.outputs.new_version }}..."
+          echo "📋 Release details:"
+          echo "  - Tag: ${{ needs.validate-inputs.outputs.new_version }}"
+          echo "  - Name: ${{ needs.validate-inputs.outputs.new_version }}: ${{ inputs.description }}"
+          echo "  - Repository: ${{ github.repository }}"
+
+          # Use the AI-generated release notes
+          RELEASE_NOTES_FILE="release_notes_${{ needs.validate-inputs.outputs.new_version }}.md"
+
+          if [ -f "$RELEASE_NOTES_FILE" ]; then
+            echo "📄 Using AI-generated release notes:"
+            cat "$RELEASE_NOTES_FILE"
+          else
+            echo "❌ Release notes file not found!"
+            exit 1
+          fi
+
+          # Create the release as a DRAFT for manual editing
+          echo "🚀 Creating GitHub release as DRAFT..."
+
+          # Properly escape the release notes for JSON
+          ESCAPED_BODY=$(cat "$RELEASE_NOTES_FILE" | jq -Rs .)
+
+          # Create JSON payload using jq to ensure proper escaping
+          JSON_PAYLOAD=$(jq -n \
+            --arg tag "${{ needs.validate-inputs.outputs.new_version }}" \
+            --arg name "${{ needs.validate-inputs.outputs.new_version }}: ${{ inputs.description }}" \
+            --argjson body "$ESCAPED_BODY" \
+            '{
+              tag_name: $tag,
+              name: $name,
+              body: $body,
+              draft: true,
+              prerelease: false
+            }')
+
+          RELEASE_RESPONSE=$(curl -s \
+            -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" \
+            -d "$JSON_PAYLOAD")
+
+          echo "📊 API Response:"
+          echo "$RELEASE_RESPONSE" | jq '.'
+
+          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id')
+          RELEASE_URL=$(echo "$RELEASE_RESPONSE" | jq -r '.html_url')
+
+          if [ "$RELEASE_ID" != "null" ] && [ -n "$RELEASE_ID" ]; then
+            echo "✅ Draft release created successfully!"
+            echo "📊 Release ID: $RELEASE_ID"
+            echo "🔗 Release URL: $RELEASE_URL"
+            echo "📝 Next step: Edit release notes manually and publish"
+            echo "release_id=$RELEASE_ID" >> $GITHUB_ENV
+            echo "release_url=$RELEASE_URL" >> $GITHUB_ENV
+          else
+            echo "❌ Failed to create release!"
+            echo "📊 Error details:"
+            echo "$RELEASE_RESPONSE" | jq -r '.message // "Unknown error"'
+            echo "$RELEASE_RESPONSE" | jq -r '.errors[]?.message // empty'
+            exit 1
+          fi
+
+      - name: 📦 Upload release assets (PDF + EPUB per volume)
+        run: |
+          echo "📦 Uploading release assets..."
+          echo "📋 Available assets:"
+          ls -la release-assets/
+
+          UPLOAD_FAILURES=0
+
+          for ASSET_FILE in release-assets/*; do
+            [ -f "$ASSET_FILE" ] || continue
+            [ -s "$ASSET_FILE" ] || { echo "⚠️ Skipping empty file: $ASSET_FILE"; continue; }
+
+            ASSET_NAME=$(basename "$ASSET_FILE")
+            ASSET_EXT="${ASSET_NAME##*.}"
+            echo ""
+            echo "📤 Uploading $ASSET_NAME ($(du -h "$ASSET_FILE" | cut -f1))..."
+
+            # Set content type based on extension
+            case "$ASSET_EXT" in
+              pdf)  CONTENT_TYPE="application/pdf" ;;
+              epub) CONTENT_TYPE="application/epub+zip" ;;
+              *)    CONTENT_TYPE="application/octet-stream" ;;
+            esac
+
+            UPLOAD_RESPONSE=$(curl -s \
+              -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: $CONTENT_TYPE" \
+              --data-binary @"$ASSET_FILE" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ env.release_id }}/assets?name=$ASSET_NAME")
+
+            UPLOAD_ID=$(echo "$UPLOAD_RESPONSE" | jq -r '.id')
+
+            if [ "$UPLOAD_ID" != "null" ] && [ -n "$UPLOAD_ID" ]; then
+              echo "✅ $ASSET_NAME uploaded (Asset ID: $UPLOAD_ID)"
+              echo "🔗 https://github.com/${{ github.repository }}/releases/download/${{ needs.validate-inputs.outputs.new_version }}/$ASSET_NAME"
+            else
+              echo "⚠️ Failed to upload $ASSET_NAME"
+              echo "$UPLOAD_RESPONSE" | jq -r '.message // "Unknown error"'
+              UPLOAD_FAILURES=$((UPLOAD_FAILURES + 1))
+            fi
+          done
+
+          if [ "$UPLOAD_FAILURES" -gt 0 ]; then
+            echo ""
+            echo "⚠️ $UPLOAD_FAILURES asset(s) failed to upload"
+          else
+            echo ""
+            echo "✅ All release assets uploaded successfully"
+          fi
+
+  summary:
+    name: '📋 Publication Summary'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [validate-inputs, create-release]
+    if: |
+      always()
+      && inputs.confirm == 'PUBLISH'
+      && inputs.testing_mode != 'yes'
+      && needs.validate-inputs.result == 'success'
+      && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+
+    steps:
+      - name: 📋 Publication Summary
+        run: |
+          echo "## 📚 Textbook Publication Complete! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version Released:** ${{ needs.validate-inputs.outputs.new_version }} (${{ needs.validate-inputs.outputs.release_type }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Previous Version:** ${{ needs.validate-inputs.outputs.previous_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Content Published:** ${{ inputs.description }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Published by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Source Commit:** ${{ inputs.dev_commit || 'latest' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Publication Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "**Release ID:** ${{ env.release_id || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Release URL:** ${{ env.release_url || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Debug Information:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Workflow Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run Attempt:** ${{ github.run_attempt }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit SHA:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AI Generated Notes:** ${{ inputs.ai_generated_notes }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 Changes:" >> $GITHUB_STEP_SUMMARY
+          echo "${{ inputs.description }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔄 What happened:" >> $GITHUB_STEP_SUMMARY
+          echo "1. ✅ Verified dev branch tests passed" >> $GITHUB_STEP_SUMMARY
+          echo "2. ✅ Calculated new version number" >> $GITHUB_STEP_SUMMARY
+          echo "3. ✅ Merged dev → main branch" >> $GITHUB_STEP_SUMMARY
+          echo "4. ✅ Pushed to main (triggered production build)" >> $GITHUB_STEP_SUMMARY
+          echo "5. ✅ Waited for build completion (up to 3 hours)" >> $GITHUB_STEP_SUMMARY
+          echo "6. ✅ Created release tag ${{ needs.validate-inputs.outputs.new_version }} (after successful build)" >> $GITHUB_STEP_SUMMARY
+          echo "7. ✅ Created GitHub Release (DRAFT - edit manually)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏗️ Build Process:" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 **Quarto Build Container Workflow**: Triggered by main branch push" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔨 **Build Jobs**: HTML + PDF + EPUB generation on Linux (parallel builds)" >> $GITHUB_STEP_SUMMARY
+          echo "- 📄 **PDF Processing**: Generated, compressed with Ghostscript, stored in build/pdf/" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 **Artifacts**: main-html-linux (web content) + main-pdf-linux (PDF file) + main-epub-linux (EPUB file)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔄 **Integration**: Downloaded all artifacts and combined into unified deployment" >> $GITHUB_STEP_SUMMARY
+          echo "- 🌐 **Deployment**: Combined HTML + PDF + EPUB deployed to GitHub Pages (gh-pages branch)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🌐 Access Your Published Textbook:" >> $GITHUB_STEP_SUMMARY
+          echo "- 📖 [Volume I: Foundations](https://mlsysbook.ai/${{ vars.VOL1_DEPLOY_PATH }}/)" >> $GITHUB_STEP_SUMMARY
+          echo "- 📘 [Volume II: At Scale](https://mlsysbook.ai/${{ vars.VOL2_DEPLOY_PATH }}/)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔥 [TinyTorch Framework](https://mlsysbook.ai/tinytorch/)" >> $GITHUB_STEP_SUMMARY
+          echo "- ⚙️ [Hardware Kits](https://mlsysbook.ai/kits/)" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 [Version Release Notes](https://github.com/${{ github.repository }}/releases/tag/${{ needs.validate-inputs.outputs.new_version }})" >> $GITHUB_STEP_SUMMARY
+          echo "- 📄 [Download Vol1 PDF](https://github.com/${{ github.repository }}/releases/download/${{ needs.validate-inputs.outputs.new_version }}/Machine-Learning-Systems-Vol1.pdf)" >> $GITHUB_STEP_SUMMARY
+          echo "- 📄 [Download Vol2 PDF](https://github.com/${{ github.repository }}/releases/download/${{ needs.validate-inputs.outputs.new_version }}/Machine-Learning-Systems-Vol2.pdf)" >> $GITHUB_STEP_SUMMARY
+          echo "- 📚 [Download Vol1 EPUB](https://github.com/${{ github.repository }}/releases/download/${{ needs.validate-inputs.outputs.new_version }}/Machine-Learning-Systems-Vol1.epub)" >> $GITHUB_STEP_SUMMARY
+          echo "- 📚 [Download Vol2 EPUB](https://github.com/${{ github.repository }}/releases/download/${{ needs.validate-inputs.outputs.new_version }}/Machine-Learning-Systems-Vol2.epub)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🎓 [Share with Students](https://mlsysbook.ai/${{ vars.VOL1_DEPLOY_PATH }}/)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Build Status:" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 **Quarto Build Container Workflow**: Should be running/completed" >> $GITHUB_STEP_SUMMARY
+          echo "- 🏗️ **Quarto Build**: HTML + PDF + EPUB generation" >> $GITHUB_STEP_SUMMARY
+          echo "- 📄 **PDF Assets**: Available at \`/${{ vars.VOL1_DEPLOY_PATH }}/assets/downloads/\` and \`/${{ vars.VOL2_DEPLOY_PATH }}/assets/downloads/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 📚 **EPUB Assets**: Available at \`/${{ vars.VOL1_DEPLOY_PATH }}/assets/downloads/\` and \`/${{ vars.VOL2_DEPLOY_PATH }}/assets/downloads/\`" >> $GITHUB_STEP_SUMMARY
+
+  cleanup-on-failure:
+    name: '🧹 Cleanup Failed Release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [validate-inputs]
+    if: always() && inputs.confirm == 'PUBLISH' && (failure() || cancelled())
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🧹 Clean up failed release artifacts
+        run: |
+          echo "🧹 Cleaning up artifacts from failed release..."
+
+          # Get the version that was being released
+          if [ -n "${{ needs.validate-inputs.outputs.new_version }}" ]; then
+            VERSION_TAG="${{ needs.validate-inputs.outputs.new_version }}"
+            echo "🎯 Cleaning up version: $VERSION_TAG"
+          else
+            echo "⚠️ No version information available, skipping cleanup"
+            exit 0
+          fi
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Check and remove local tag
+          if git tag -l "$VERSION_TAG" | grep -q "$VERSION_TAG"; then
+            echo "🗑️ Removing local tag: $VERSION_TAG"
+            git tag -d "$VERSION_TAG"
+          else
+            echo "ℹ️ Local tag $VERSION_TAG does not exist"
+          fi
+
+          # Check and remove remote tag if it exists
+          if git ls-remote --tags origin | grep -q "refs/tags/$VERSION_TAG$"; then
+            echo "🗑️ Removing remote tag: $VERSION_TAG"
+            git push origin --delete "$VERSION_TAG" || echo "⚠️ Failed to delete remote tag (may not exist)"
+          else
+            echo "ℹ️ Remote tag $VERSION_TAG does not exist"
+          fi
+
+          # Check for any draft releases and delete them
+          echo "🔍 Checking for draft releases..."
+          DRAFT_RELEASE=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" \
+            | jq -r ".[] | select(.tag_name == \"$VERSION_TAG\" and .draft == true) | .id")
+
+          if [ "$DRAFT_RELEASE" != "null" ] && [ -n "$DRAFT_RELEASE" ]; then
+            echo "🗑️ Deleting draft release: $DRAFT_RELEASE"
+            curl -s \
+              -X DELETE \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$DRAFT_RELEASE"
+            echo "✅ Draft release deleted"
+          else
+            echo "ℹ️ No draft release found for $VERSION_TAG"
+          fi
+
+          echo "✅ Cleanup completed! Repository is ready for retry."
+
+      - name: 📊 Cleanup Summary
+        run: |
+          echo "## 🧹 Failed Release Cleanup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.validate-inputs.outputs.new_version || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cleanup Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Original Inputs (for debugging):" >> $GITHUB_STEP_SUMMARY
+          echo "- **Description:** ${{ inputs.description }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Type:** ${{ inputs.release_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dev Commit:** ${{ inputs.dev_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Confirmation:** ${{ inputs.confirm }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AI Generated Notes:** ${{ inputs.ai_generated_notes }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status Check Timeout:** ${{ inputs.commit_status_timeout }} attempts" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status Check Interval:** ${{ inputs.commit_status_interval }} seconds" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run Attempt:** ${{ github.run_attempt }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🗑️ Cleaned Up:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Local git tags removed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Remote git tags removed (if they existed)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Draft GitHub releases removed (if they existed)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔄 Ready for Retry:" >> $GITHUB_STEP_SUMMARY
+          echo "You can now safely re-run the publish workflow with the same version number." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🐛 Troubleshooting:" >> $GITHUB_STEP_SUMMARY
+          echo "If you continue to have issues, check the workflow logs for the failed step." >> $GITHUB_STEP_SUMMARY
+
+  cleanup-on-timeout:
+    name: '⏰ Cleanup Timed Out Release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [validate-inputs, merge-to-main, trigger-production-build, create-tag]
+    if: always() && inputs.confirm == 'PUBLISH' && (needs.trigger-production-build.result == 'failure' || needs.trigger-production-build.result == 'timeout')
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🧹 Clean up timed out release artifacts
+        run: |
+          echo "⏰ Cleaning up artifacts from timed out release..."
+
+          # Get the version that was being released
+          if [ -n "${{ needs.validate-inputs.outputs.new_version }}" ]; then
+            VERSION_TAG="${{ needs.validate-inputs.outputs.new_version }}"
+            echo "🎯 Cleaning up version: $VERSION_TAG"
+          else
+            echo "⚠️ No version information available, skipping cleanup"
+            exit 0
+          fi
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Check and remove local tag
+          if git tag -l "$VERSION_TAG" | grep -q "$VERSION_TAG"; then
+            echo "🗑️ Removing local tag: $VERSION_TAG"
+            git tag -d "$VERSION_TAG"
+          else
+            echo "ℹ️ Local tag $VERSION_TAG does not exist"
+          fi
+
+          # Check and remove remote tag if it exists
+          if git ls-remote --tags origin | grep -q "refs/tags/$VERSION_TAG$"; then
+            echo "🗑️ Removing remote tag: $VERSION_TAG"
+            git push origin --delete "$VERSION_TAG" || echo "⚠️ Failed to delete remote tag (may not exist)"
+          else
+            echo "ℹ️ Remote tag $VERSION_TAG does not exist"
+          fi
+
+          # Check for any draft releases and delete them
+          echo "🔍 Checking for draft releases..."
+          DRAFT_RELEASE=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases" \
+            | jq -r ".[] | select(.tag_name == \"$VERSION_TAG\" and .draft == true) | .id")
+
+          if [ "$DRAFT_RELEASE" != "null" ] && [ -n "$DRAFT_RELEASE" ]; then
+            echo "🗑️ Deleting draft release: $DRAFT_RELEASE"
+            curl -s \
+              -X DELETE \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$DRAFT_RELEASE"
+            echo "✅ Draft release deleted"
+          else
+            echo "ℹ️ No draft release found for $VERSION_TAG"
+          fi
+
+          echo "✅ Cleanup completed! Repository is ready for retry."
+
+      - name: 🔄 Rollback Main Branch (if needed)
+        run: |
+          echo "🔄 Checking if main branch rollback is needed..."
+
+          # Only rollback if merge succeeded but later steps failed
+          if [ "${{ needs.merge-to-main.result }}" = "success" ] && [ "${{ needs.create-tag.result }}" != "success" ]; then
+            echo "⚠️ Merge succeeded but tag creation failed - considering rollback"
+            echo "🔍 Checking if main branch needs to be rolled back..."
+
+            # Get the commit before the merge
+            MERGE_COMMIT=$(git log --oneline -1 --grep="Release $VERSION_TAG" --format="%H" || echo "")
+
+            if [ -n "$MERGE_COMMIT" ]; then
+              PARENT_COMMIT=$(git log --format="%P" -n 1 "$MERGE_COMMIT" | cut -d' ' -f1)
+              echo "🔍 Found merge commit: $MERGE_COMMIT"
+              echo "🔍 Parent commit: $PARENT_COMMIT"
+
+              echo "⚠️ To manually rollback main branch, run:"
+              echo "   git checkout main"
+              echo "   git reset --hard $PARENT_COMMIT"
+              echo "   git push origin main --force-with-lease"
+              echo ""
+              echo "⚠️ AUTOMATED ROLLBACK DISABLED - Manual intervention required"
+              echo "🛡️ This prevents accidental data loss"
+            else
+              echo "ℹ️ No merge commit found - no rollback needed"
+            fi
+          else
+            echo "ℹ️ No rollback needed - merge did not complete successfully"
+          fi
+
+      - name: 📊 Cleanup Summary
+        run: |
+          echo "## 🧹 Failed Release Cleanup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.validate-inputs.outputs.new_version || 'Unknown' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cleanup Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Original Inputs (for debugging):" >> $GITHUB_STEP_SUMMARY
+          echo "- **Description:** ${{ inputs.description }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Type:** ${{ inputs.release_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dev Commit:** ${{ inputs.dev_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Confirmation:** ${{ inputs.confirm }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AI Generated Notes:** ${{ inputs.ai_generated_notes }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status Check Timeout:** ${{ inputs.commit_status_timeout }} attempts" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status Check Interval:** ${{ inputs.commit_status_interval }} seconds" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run Attempt:** ${{ github.run_attempt }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🗑️ Cleaned Up:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Local git tags removed" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Remote git tags removed (if they existed)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Draft GitHub releases removed (if they existed)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔄 Ready for Retry:" >> $GITHUB_STEP_SUMMARY
+          echo "You can now safely re-run the publish workflow with the same version number." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🐛 Troubleshooting:" >> $GITHUB_STEP_SUMMARY
+          echo "If you continue to have issues, check the workflow logs for the failed step." >> $GITHUB_STEP_SUMMARY
+
+  testing-mode-summary:
+    name: '🧪 Testing Mode Summary'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: inputs.confirm == 'PUBLISH' && inputs.testing_mode == 'yes'
+    needs: [validate-inputs, call-production-build]
+
+    steps:
+      - name: 🧪 Testing Mode Complete
+        run: |
+          echo "## 🧪 Testing Mode Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ✅ Testing workflow completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode:** Testing (no actual deployment)" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 What was tested:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Input validation" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Build workflow triggering" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Build completion detection" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Artifact availability" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 To run actual deployment:" >> $GITHUB_STEP_SUMMARY
+          echo "- Set **testing_mode** to **no**" >> $GITHUB_STEP_SUMMARY
+          echo "- Re-run with same parameters" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Debug Information:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Description:** ${{ inputs.description }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Type:** ${{ inputs.release_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dev Commit:** ${{ inputs.dev_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Concurrency Group:** publish-live-test-${{ github.run_number }}-${{ inputs.dev_commit }}" >> $GITHUB_STEP_SUMMARY
+
+          echo "✅ Testing mode completed successfully!"
+          echo "🧪 This run tested the workflow without actual deployment"
+          echo "🔄 Run ID: ${{ github.run_id }}"
+          echo "👤 Triggered by: ${{ github.actor }}"
+          echo "🌐 Branch: ${{ github.ref_name }}"
+
+  fail-validation:
+    name: '❌ Validation Failed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: inputs.confirm != 'PUBLISH'
+
+    steps:
+      - name: ❌ Invalid confirmation
+        run: |
+          echo "## ❌ Publication Validation Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Reason:** Invalid confirmation" >> $GITHUB_STEP_SUMMARY
+          echo "**Expected:** PUBLISH" >> $GITHUB_STEP_SUMMARY
+          echo "**Received:** ${{ inputs.confirm }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Debug Information:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Run ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Description:** ${{ inputs.description }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Type:** ${{ inputs.release_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dev Commit:** ${{ inputs.dev_commit }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **AI Generated Notes:** ${{ inputs.ai_generated_notes }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "❌ Publication cancelled - invalid confirmation"
+          echo "🔒 You must type exactly 'PUBLISH' to confirm"
+          echo "📝 You entered: '${{ inputs.confirm }}'"
+          echo "👤 Triggered by: ${{ github.actor }}"
+          echo "🌐 Branch: ${{ github.ref_name }}"
+          echo "🔄 Run ID: ${{ github.run_id }}"
+          exit 1

@@ -1,0 +1,434 @@
+name: '🔧 Infra · 🐳 Container (Linux)'
+
+# =============================================================================
+# 🐳 Linux Container — Build and push the Quarto build container to GHCR
+# =============================================================================
+#
+# Builds the Linux Docker image with all pre-installed dependencies (Quarto,
+# Python, R, TinyTeX) to eliminate 30-45 minute setup time in CI runs.
+#
+# Flow:
+#   1. ENVIRONMENT  — Validate permissions, free disk space, configure Buildx
+#   2. REGISTRY     — Authenticate to GHCR and verify write access
+#   3. BUILD & PUSH — Build container image with layer caching, push to GHCR
+#   4. SUMMARY      — Report build status, image digest, and cache hit
+#
+# Triggers:
+#   - push (dev): Changes to book/tools/dependencies/ or book/docker/linux/
+#   - schedule: Weekly rebuild (Sunday midnight UTC)
+#   - workflow_dispatch: Manual with force_rebuild, no_cache options
+#   - workflow_call: Reusable by other workflows
+#
+# Deploys to: ghcr.io/harvard-edge/mlsysbook/quarto-linux:latest
+# Secrets:    GITHUB_TOKEN (automatic)
+# Vars:       BOOK_DOCKER, BOOK_ROOT, BOOK_TOOLS, BOOK_QUARTO, BOOK_DEPS
+#
+# Related:
+#   - infra-container-windows.yml — Windows container build (runs 2h after)
+#   - infra-health-check.yml      — Daily validation of built containers
+#   - infra-cleanup-caches.yml    — Weekly GHA cache cleanup
+#
+# =============================================================================
+
+# Prevent multiple builds running simultaneously
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Default token scope for jobs without their own `permissions` (e.g. preflight).
+# The container build job overrides this with `packages: write` where needed.
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild even if no changes'
+        required: false
+        default: false
+        type: boolean
+      no_cache:
+        description: 'Disable Docker build cache (fresh build)'
+        required: false
+        default: false
+        type: boolean
+      container_registry:
+        description: 'Container registry URL'
+        required: false
+        default: 'ghcr.io'
+        type: string
+      container_name:
+        description: 'Container image name'
+        required: false
+        default: 'quarto-linux'
+        type: string
+      container_tag:
+        description: 'Container tag'
+        required: false
+        default: 'latest'
+        type: string
+  workflow_call:
+    inputs:
+      force_rebuild:
+        required: false
+        default: false
+        type: boolean
+      no_cache:
+        required: false
+        default: false
+        type: boolean
+      container_registry:
+        required: false
+        default: 'ghcr.io'
+        type: string
+      container_name:
+        required: false
+        default: 'quarto-linux'
+        type: string
+      container_tag:
+        required: false
+        default: 'latest'
+        type: string
+
+    outputs:
+      build-status:
+        description: "Container build status (success/failure/skipped)"
+        value: ${{ jobs.build.outputs.build-status }}
+      image-name:
+        description: "Full container image name with registry"
+        value: ${{ jobs.build.outputs.image-name }}
+      image-digest:
+        description: "Container image digest (SHA256)"
+        value: ${{ jobs.build.outputs.image-digest }}
+      cache-hit:
+        description: "Whether build used cache (true/false)"
+        value: ${{ jobs.build.outputs.cache-hit }}
+
+  # Re-enable automatic triggers
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly rebuild (Sunday at midnight)
+  push:
+    branches: [dev]  # Only trigger on dev branch, not main
+    paths:
+      - 'book/tools/dependencies/**'
+      - 'book/docker/linux/**'
+      - '.github/workflows/infra-container-linux.yml'
+
+env:
+  # =============================================================================
+  # PATH CONFIGURATION - Uses GitHub Repository Variables (Settings > Variables)
+  # =============================================================================
+  # MLSysBook content lives under book/ to accommodate TinyTorch at root
+  # Use ${{ vars.BOOK_ROOT }}, ${{ vars.BOOK_DOCKER }}, etc. in workflow steps
+  # Variables: BOOK_ROOT, BOOK_DOCKER, BOOK_TOOLS, BOOK_QUARTO, BOOK_DEPS
+
+  # Container Registry Configuration (configurable via inputs)
+  REGISTRY: ${{ (github.event_name == 'workflow_dispatch' && inputs.container_registry) || 'ghcr.io' }}
+  IMAGE_NAME: ${{ github.repository }}/${{ (github.event_name == 'workflow_dispatch' && inputs.container_name) || 'quarto-linux' }}
+  CONTAINER_TAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.container_tag) || 'latest' }}
+
+  # Container Build Configuration
+  PLATFORM: linux/amd64
+  # Using vars.BOOK_DOCKER (repository variable) - works in all contexts
+  DOCKERFILE_PATH: ./${{ vars.BOOK_DOCKER }}/linux/Dockerfile
+  CONTEXT_PATH: .
+
+jobs:
+  preflight:
+    name: 🌐 Preflight external URLs
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'harvard-edge'
+    timeout-minutes: 5
+    steps:
+      - name: 🔎 Probe required URLs and TL mirror pool
+        env:
+          QUARTO_VERSION: '1.9.27'
+          TEXLIVE_REPOSITORY_URL: 'https://mirrors.mit.edu/CTAN/systems/texlive/tlnet'
+        run: |
+          set -uo pipefail
+
+          # Required URLs — every one must return 200. These are the choke points
+          # the container build hits before installing TeX Live; a dead one wastes
+          # 30+ min on a runner before failing inside docker build.
+          required=(
+            "https://ppa.launchpadcontent.net/inkscape.dev/stable/ubuntu/dists/jammy/Release"
+            "https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc"
+            "https://cloud.r-project.org/bin/linux/ubuntu/jammy-cran40/InRelease"
+            "https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-amd64.deb"
+            "${TEXLIVE_REPOSITORY_URL}/tlpkg/texlive.tlpdb"
+          )
+
+          # TeX Live install-tl mirror pool — install-texlive-base.sh tries each
+          # in order and falls through on failure, so this is resilience not a
+          # hard gate. Require ≥3 of 5 alive.
+          mirrors=(
+            "https://mirrors.mit.edu/CTAN/systems/texlive/tlnet/install-tl-unx.tar.gz"
+            "https://ctan.math.washington.edu/tex-archive/systems/texlive/tlnet/install-tl-unx.tar.gz"
+            "https://mirrors.rit.edu/CTAN/systems/texlive/tlnet/install-tl-unx.tar.gz"
+            "https://mirror.las.iastate.edu/tex-archive/systems/texlive/tlnet/install-tl-unx.tar.gz"
+            "https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz"
+          )
+
+          probe() {
+            url="$1"
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -m 15 -L --retry 1 "$url" 2>/dev/null || echo "ERR")
+            printf '%s\t%s\n' "$code" "$url"
+          }
+          export -f probe
+
+          echo "=== Required URLs (all must return 200) ==="
+          fail=0
+          tmp=$(mktemp)
+          printf '%s\n' "${required[@]}" | xargs -P 8 -I{} bash -c 'probe "$@"' _ {} > "$tmp"
+          while IFS=$'\t' read -r code url; do
+            if [ "$code" = "200" ]; then
+              echo "  ✓ $code  $url"
+            else
+              echo "  ✗ $code  $url"
+              fail=$((fail+1))
+            fi
+          done < "$tmp"
+
+          echo
+          echo "=== TL install-tl mirror pool (need ≥3 of ${#mirrors[@]} alive) ==="
+          alive=0
+          tmp2=$(mktemp)
+          printf '%s\n' "${mirrors[@]}" | xargs -P 8 -I{} bash -c 'probe "$@"' _ {} > "$tmp2"
+          while IFS=$'\t' read -r code url; do
+            if [ "$code" = "200" ]; then
+              echo "  ✓ $code  $url"
+              alive=$((alive+1))
+            else
+              echo "  ⚠ $code  $url"
+            fi
+          done < "$tmp2"
+
+          echo
+          if [ "$fail" -gt 0 ]; then
+            echo "❌ $fail required URL(s) failed — aborting before container build"
+            exit 1
+          fi
+          if [ "$alive" -lt 3 ]; then
+            echo "❌ Only $alive of ${#mirrors[@]} TL mirrors alive (need ≥3) — aborting"
+            exit 1
+          fi
+          echo "✅ Preflight passed: required URLs all up, $alive/${#mirrors[@]} TL mirrors alive"
+
+  build:
+    needs: preflight
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'harvard-edge'
+    timeout-minutes: 90  # 1.5 hour timeout for Linux builds
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      build-status: ${{ steps.build-summary.outputs.build-status }}
+      image-name: ${{ steps.build-summary.outputs.image-name }}
+      image-digest: ${{ steps.build-summary.outputs.image-digest }}
+      cache-hit: ${{ steps.build-summary.outputs.cache-hit }}
+
+    steps:
+      - name: 🔍 Check workflow environment
+        run: |
+          set -euo pipefail  # Exit immediately on any error
+          echo "🔍 Checking workflow environment..."
+          echo "📊 Repository: ${{ github.repository }}"
+          echo "📊 Actor: ${{ github.actor }}"
+          echo "📊 Event: ${{ github.event_name }}"
+          echo "📊 Ref: ${{ github.ref }}"
+          echo "📊 SHA: ${{ github.sha }}"
+          echo "📊 Workflow: ${{ github.workflow }}"
+          echo "📊 Run ID: ${{ github.run_id }}"
+          echo "📊 Run Number: ${{ github.run_number }}"
+
+          # Check if we have the required permissions
+          echo "🔍 Checking permissions..."
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "✅ Manual workflow dispatch - should have full permissions"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            echo "✅ Push event - should have full permissions"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "✅ Scheduled event - should have full permissions"
+          else
+            echo "⚠️ Unknown event type: ${{ github.event_name }}"
+          fi
+
+          # Check if secrets are available
+          echo "🔍 Checking secrets availability..."
+          if [ -n "${{ secrets.GITHUB_TOKEN }}" ]; then
+            echo "✅ GITHUB_TOKEN is available"
+          else
+            echo "❌ GITHUB_TOKEN is not available"
+            exit 1
+          fi
+
+          echo "✅ Environment check completed"
+
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+
+      - name: 🧹 Free up disk space
+        run: |
+          echo "🧹 Freeing up disk space for large container build..."
+          echo "📊 Disk space before cleanup:"
+          df -h /
+
+          # Remove unnecessary packages and files
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker system prune -af
+
+          echo "📊 Disk space after cleanup:"
+          df -h /
+          echo "✅ Disk cleanup complete"
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker-container
+          driver-opts: |
+            network=host
+          buildkitd-flags: |
+            --allow-insecure-entitlement security.insecure
+            --allow-insecure-entitlement network.host
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 1
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
+
+      - name: 🔍 Verify Buildx Builder
+        run: |
+          echo "🔍 Checking buildx builder status..."
+          docker buildx ls
+          echo "🔍 Inspecting builder..."
+          docker buildx inspect --bootstrap
+          echo "✅ Buildx builder ready"
+
+      - name: 🔐 Log in to Container Registry
+        id: login
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔍 Check registry access
+        run: |
+          set -euo pipefail  # Exit immediately on any error
+          echo "🔍 Checking container registry access..."
+          echo "📊 Registry: ${{ env.REGISTRY }}"
+          echo "📊 Repository: ${{ github.repository }}"
+          echo "📊 Actor: ${{ github.actor }}"
+          echo "📊 Event: ${{ github.event_name }}"
+
+          # Test if we can access the registry
+          echo "🔍 Testing Docker daemon access..."
+          if docker info >/dev/null 2>&1; then
+            echo "✅ Docker daemon is accessible"
+          else
+            echo "❌ Docker daemon not accessible"
+            exit 1
+          fi
+
+          # Test registry login with detailed error checking
+          echo "🔍 Testing container registry login..."
+          if echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin; then
+            echo "✅ Successfully logged into container registry"
+          else
+            echo "❌ Failed to log into container registry"
+            echo "🔍 This could be due to:"
+            echo "   - Missing GITHUB_TOKEN secret"
+            echo "   - Insufficient permissions"
+            echo "   - Registry access issues"
+            echo "🔍 Checking GITHUB_TOKEN availability..."
+            if [ -n "${{ secrets.GITHUB_TOKEN }}" ]; then
+              echo "✅ GITHUB_TOKEN is available"
+            else
+              echo "❌ GITHUB_TOKEN is empty or not available"
+            fi
+            exit 1
+          fi
+
+          # Verify we can actually push to the registry
+          echo "🔍 Testing registry write permissions..."
+          TEST_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/test-push:latest"
+          if docker pull hello-world:latest >/dev/null 2>&1; then
+            if docker tag hello-world:latest $TEST_IMAGE >/dev/null 2>&1; then
+              if docker push $TEST_IMAGE >/dev/null 2>&1; then
+                echo "✅ Registry write permissions confirmed"
+                # Clean up test image
+                docker rmi $TEST_IMAGE >/dev/null 2>&1 || true
+              else
+                echo "❌ Registry write permissions failed"
+                exit 1
+              fi
+            else
+              echo "❌ Failed to tag test image"
+              exit 1
+            fi
+          else
+            echo "❌ Failed to pull hello-world image for testing"
+            exit 1
+          fi
+
+      - name: 🏷️ Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ env.CONTAINER_TAG }}
+
+      - name: 🐳 Build Linux container
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ env.CONTEXT_PATH }}
+          file: ${{ env.DOCKERFILE_PATH }}
+          load: true  # Keep local copy for testing
+          push: true  # Also push to registry
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.no_cache || false }}  # Use cache unless explicitly disabled
+          platforms: ${{ env.PLATFORM }}
+          provenance: false  # Disable provenance for better compatibility
+          sbom: false  # Disable SBOM for better compatibility
+          cache-from: ${{ (github.event_name != 'workflow_dispatch' || !inputs.no_cache) && 'type=gha' || '' }}
+          cache-to: ${{ (github.event_name != 'workflow_dispatch' || !inputs.no_cache) && 'type=gha,mode=max' || '' }}
+          outputs: type=docker
+
+      - name: Build Complete
+        run: |
+          echo "✅ Linux container build completed successfully!"
+          echo "📊 Container: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CONTAINER_TAG }}"
+
+      - name: 📊 Build Summary
+        id: build-summary
+        if: always()
+        run: |
+          # Determine build status
+          if [ "${{ steps.build.outcome }}" = "success" ]; then
+            BUILD_STATUS="success"
+          else
+            BUILD_STATUS="failure"
+          fi
+
+          # Extract build information
+          IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CONTAINER_TAG }}"
+          IMAGE_DIGEST="${{ steps.build.outputs.digest }}"
+          CACHE_HIT="${{ steps.build.outputs.cache-hit }}"
+
+          echo "build-status=$BUILD_STATUS" >> $GITHUB_OUTPUT
+          echo "image-name=$IMAGE_NAME" >> $GITHUB_OUTPUT
+          echo "image-digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
+          echo "cache-hit=$CACHE_HIT" >> $GITHUB_OUTPUT
+
+          echo "📊 Build Status: $BUILD_STATUS"
+          echo "🐳 Image: $IMAGE_NAME"
+          echo "🔍 Digest: $IMAGE_DIGEST"
+          echo "💾 Cache Hit: $CACHE_HIT"

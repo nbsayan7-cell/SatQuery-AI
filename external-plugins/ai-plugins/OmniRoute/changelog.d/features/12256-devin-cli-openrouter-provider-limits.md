@@ -1,0 +1,1 @@
+- **feat(usage):** Devin CLI agentic quota (Codeium seat-management GetUserStatus) and OpenRouter key limits plus account credits now surface in Provider Limits ([#12256](https://github.com/diegosouzapw/OmniRoute/pull/12256) — thanks @Neuron-Mr-White)

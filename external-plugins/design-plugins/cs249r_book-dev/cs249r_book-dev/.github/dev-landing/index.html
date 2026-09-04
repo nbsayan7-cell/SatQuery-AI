@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MLSysBook Development Preview</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #e4e4e4;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1000px;
+            text-align: center;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #e94560;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(90deg, #fff, #e4e4e4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            color: #a4a4a4;
+            margin-bottom: 3rem;
+            font-size: 1.1rem;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.25rem;
+            margin-bottom: 3rem;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .card-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .card h2 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .card p {
+            color: #a4a4a4;
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+
+        .card-link {
+            color: #e94560;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .card-link.coming-soon {
+            color: #888;
+        }
+
+        .coming-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.15);
+            color: #a4a4a4;
+            padding: 0.2rem 0.5rem;
+            border-radius: 10px;
+            font-size: 0.7rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-left: 0.5rem;
+            vertical-align: middle;
+        }
+
+        .footer {
+            color: #666;
+            font-size: 0.85rem;
+        }
+
+        .footer a {
+            color: #888;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            color: #e94560;
+        }
+
+        .commit-info {
+            margin-top: 0.5rem;
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="badge">🚧 Development Preview</div>
+
+        <h1>MLSysBook</h1>
+        <p class="subtitle">Machine Learning Systems • Development Environment</p>
+
+        <div class="cards">
+            <a href="./book/" class="card">
+                <div class="card-icon">📖</div>
+                <h2>Textbook</h2>
+                <p>Two-volume textbook covering foundations through production-scale distributed systems</p>
+                <span class="card-link">Open Book Preview →</span>
+            </a>
+
+            <a href="./labs/" class="card">
+                <div class="card-icon">🧪</div>
+                <h2>Interactive Labs</h2>
+                <p>33 browser-based Marimo labs — predict, discover, and explain ML systems concepts</p>
+                <span class="card-link">Open Labs Preview →</span>
+            </a>
+
+            <a href="./tinytorch/" class="card">
+                <div class="card-icon">🔥</div>
+                <h2>TinyTorch</h2>
+                <p>Build an ML framework from scratch — 20 progressive modules from tensors to transformers</p>
+                <span class="card-link">Open TinyTorch Preview →</span>
+            </a>
+
+            <a href="./kits/" class="card">
+                <div class="card-icon">📦</div>
+                <h2>Hardware Kits</h2>
+                <p>Deploy ML on real edge devices — Arduino, Raspberry Pi, Seeed XIAO, and Grove Vision AI</p>
+                <span class="card-link">Open Kits Preview →</span>
+            </a>
+
+            <a href="./mlsysim/" class="card">
+                <div class="card-icon">⚙️</div>
+                <h2>MLSys·IM</h2>
+                <p>Physics-grounded simulator for modeling ML systems from microcontrollers to exaflop fleets</p>
+                <span class="card-link">Open MLSys·IM Preview →</span>
+            </a>
+
+            <a href="./slides/" class="card">
+                <div class="card-icon">🎓</div>
+                <h2>Lecture Slides</h2>
+                <p>35 Beamer decks with speaker notes, active learning moments, and 266 SVG diagrams</p>
+                <span class="card-link">Open Slides Preview →</span>
+            </a>
+
+            <a href="./instructors/" class="card">
+                <div class="card-icon">🗺️</div>
+                <h2>Instructor Hub</h2>
+                <p>Course-in-a-box — syllabi, pedagogy guide, assessment rubrics, TA guide, and course map</p>
+                <span class="card-link">Open Instructor Hub →</span>
+            </a>
+
+            <a href="./staffml/" class="card">
+                <div class="card-icon">💼</div>
+                <h2>StaffML</h2>
+                <p>5,700+ ML systems interview questions — study plans, gauntlet mode, and roofline simulator</p>
+                <span class="card-link">Open StaffML Preview →</span>
+            </a>
+        </div>
+
+        <div class="footer">
+            <p>
+                <a href="https://github.com/harvard-edge/cs249r_book">GitHub</a> •
+                <a href="https://mlsysbook.ai">Live Site</a> •
+                <a href="https://github.com/harvard-edge/cs249r_book/tree/dev">dev branch</a>
+            </p>
+            <p class="commit-info">
+                This is a development preview. For the stable version, visit <a href="https://mlsysbook.ai">mlsysbook.ai</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>

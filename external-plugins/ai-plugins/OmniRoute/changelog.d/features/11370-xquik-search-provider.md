@@ -1,0 +1,1 @@
+- **feat(search):** Add Xquik X search with typed results, credential validation, REST routing, and MCP selection ([#11370](https://github.com/diegosouzapw/OmniRoute/pull/11370)) — thanks @kriptoburak

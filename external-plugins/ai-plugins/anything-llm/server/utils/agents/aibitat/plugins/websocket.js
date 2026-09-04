@@ -1,0 +1,519 @@
+const chalk = require("chalk");
+const { Telemetry } = require("../../../../models/telemetry");
+const { v4: uuidv4 } = require("uuid");
+const { safeJsonParse } = require("../../../http");
+const { skillIsAutoApproved } = require("../../../helpers/agents");
+const { ROLES } = require("../../../middleware/multiUserProtected");
+
+/**
+ * Toggling an agent's tools mid-session is an admin-only action, mirroring the
+ * Agent Skills settings which only admins can manage. In multi-user mode the
+ * requesting user must be an admin; single-user mode (no userId) is allowed.
+ * @param {number|null} userId - User id from the agent invocation.
+ * @returns {Promise<boolean>}
+ */
+async function userCanToggleTools(userId = null) {
+  const { SystemSettings } = require("../../../../models/systemSettings");
+  if (!(await SystemSettings.isMultiUserMode())) return true;
+  if (!userId) return false;
+
+  const { User } = require("../../../../models/user");
+  const user = await User.get({ id: Number(userId) });
+  return user?.role === ROLES.admin;
+}
+
+const SOCKET_TIMEOUT_MS = 300 * 1_000; // 5 mins
+const TOOL_APPROVAL_TIMEOUT_MS = 120 * 1_000; // 2 mins for tool approval
+const CLARIFICATION_DEFAULT_TIMEOUT_MS = 120 * 1_000; // 2 mins for clarifying questions
+
+/**
+ * Websocket Interface plugin. It prints the messages on the console and asks for feedback
+ * while the conversation is running in the background.
+ */
+
+// export interface AIbitatWebSocket extends ServerWebSocket<unknown> {
+//   askForFeedback?: any
+//   awaitResponse?: any
+//   handleFeedback?: (message: string) => void;
+//   handleToolApproval?: (message: string) => void;
+//   handleClarificationResponse?: (message: string) => void;
+// }
+
+const WEBSOCKET_BAIL_COMMANDS = [
+  "exit",
+  "/exit",
+  "stop",
+  "/stop",
+  "halt",
+  "/halt",
+  "/reset", // Will not reset but will bail. Powerusers always do this and the LLM responds.
+];
+/**
+ * Detects the /img slash command (optionally followed by a prompt) so it can be
+ * handled inline during an active agent session instead of being handed to the
+ * agent as a normal prompt.
+ * @param {string} feedback
+ * @returns {boolean}
+ */
+function isImageCommand(feedback = "") {
+  return /^\/img(\s|$)/i.test(String(feedback).trim());
+}
+
+/**
+ * Generates an image for a /img command issued mid agent session and streams the
+ * resulting card back over the socket. Reuses the same generator and persistence
+ * path as the standalone /img chat command so it renders and reloads identically.
+ * @param {{aibitat: object, socket: object, message: string}} params
+ * @returns {Promise<Array>} generated image attachments to carry into the next agent turn
+ */
+async function handleImageCommand({ aibitat, socket, message }) {
+  const { generateImage } = require("../../../chats/commands/img");
+  const { generatedImageAttachments } = require("../../../files");
+  const { User } = require("../../../../models/user");
+  const invocation = aibitat?.handlerProps?.invocation;
+  if (!invocation?.workspace) return [];
+
+  const user = invocation.user_id
+    ? await User.get({ id: invocation.user_id })
+    : null;
+
+  // Show the image-pending card while generating - generateImage only emits
+  // this over an HTTP response stream, and there is none mid agent session.
+  socket.send(JSON.stringify({ type: "imageGenerationPending" }));
+  const result = await generateImage(
+    invocation.workspace,
+    message,
+    uuidv4(),
+    user,
+    invocation.thread_id ? { id: invocation.thread_id } : null,
+    null,
+    [],
+    aibitat?.abortController?.signal ?? null
+  );
+
+  // generateImage reports aborts and provider failures as an empty
+  // textResponse - an empty content card is dropped by the frontend, which
+  // would strand the pending card with no explanation. Always send something
+  // and surface failures in the server log.
+  if (result.error)
+    console.error(`[AgentHandler] Inline /img command failed: ${result.error}`);
+  socket.send(
+    JSON.stringify({
+      type: "imageGenerationCard",
+      content: {
+        text:
+          result.textResponse ||
+          result.error ||
+          "Image generation was cancelled.",
+        outputs: result.outputs || [],
+        chatId: result.chatId || null,
+      },
+    })
+  );
+
+  return generatedImageAttachments(result.outputs);
+}
+
+const websocket = {
+  name: "websocket",
+  startupConfig: {
+    params: {
+      socket: {
+        required: true,
+      },
+      muteUserReply: {
+        required: false,
+        default: true,
+      },
+      introspection: {
+        required: false,
+        default: true,
+      },
+    },
+  },
+  plugin: function ({
+    socket, // @type AIbitatWebSocket
+    muteUserReply = true, // Do not post messages to "USER" back to frontend.
+    introspection = false, // when enabled will attach socket to Aibitat object with .introspect method which reports status updates to frontend.
+    userId = null, // User ID for multi-user mode whitelist lookups
+  }) {
+    return {
+      name: this.name,
+      setup(aibitat) {
+        aibitat.onError(async (error) => {
+          let errorMessage =
+            error?.message || "An error occurred while running the agent.";
+          console.error(chalk.red(`   error: ${errorMessage}`), error);
+          aibitat.introspect(
+            `Error encountered while running: ${errorMessage}`
+          );
+          socket.send(
+            JSON.stringify({ type: "wssFailure", content: errorMessage })
+          );
+          aibitat.terminate();
+        });
+
+        aibitat.introspect = (messageText) => {
+          if (!introspection) return; // Dump thoughts when not wanted.
+          socket.send(
+            JSON.stringify({
+              type: "statusResponse",
+              content: messageText,
+              animate: true,
+            })
+          );
+        };
+
+        // expose function for sockets across aibitat
+        // type param must be set or else msg will not be shown or handled in UI.
+        aibitat.socket = {
+          send: (type = "__unhandled", content = "") => {
+            socket.send(JSON.stringify({ type, content }));
+          },
+        };
+
+        // Toggle a tool/skill on or off for the running agent mid-session. The
+        // change applies on the agent's next turn. Returns true once handled so
+        // the socket message router stops further dispatch. Toggling is an
+        // admin-only action, so the message is claimed but only applied once
+        // the requesting user is authorized.
+        socket.handleToolToggle = (message) => {
+          const data = safeJsonParse(message, {});
+          if (data?.type !== "agentToolToggle") return false;
+
+          userCanToggleTools(userId).then((authorized) => {
+            if (!authorized)
+              return console.log(
+                chalk.yellow("Ignoring agentToolToggle from a non-admin user.")
+              );
+            aibitat.toggleAgentTool?.({
+              skill: data.skill,
+              enabled: data.enabled,
+              serverName: data.serverName || null,
+            });
+          });
+          return true;
+        };
+
+        /**
+         * Request user approval before executing a tool/skill.
+         * This sends a request to the frontend and blocks until the user responds.
+         * If the skill is whitelisted, approval is granted automatically.
+         *
+         * @param {Object} options - The approval request options
+         * @param {string} options.skillName - The name of the skill/tool requesting approval
+         * @param {Object} [options.payload={}] - Optional payload data to display to the user
+         * @param {string} [options.description] - Optional description of what the skill will do
+         * @returns {Promise<{approved: boolean, message: string}>} - The approval result
+         */
+        aibitat.requestToolApproval = async function ({
+          skillName,
+          payload = {},
+          description = null,
+        }) {
+          if (skillIsAutoApproved({ skillName })) {
+            console.log(
+              chalk.green(
+                `Skill ${skillName} is auto-approved by AGENT_AUTO_APPROVED_SKILLS`
+              )
+            );
+            return {
+              approved: true,
+              message: "Skill is auto-approved.",
+            };
+          }
+
+          const {
+            AgentSkillWhitelist,
+          } = require("../../../../models/agentSkillWhitelist");
+          const isWhitelisted = await AgentSkillWhitelist.isWhitelisted(
+            skillName,
+            userId
+          );
+          if (isWhitelisted) {
+            console.log(
+              chalk.green(
+                userId
+                  ? `User ${userId} - `
+                  : "" + `Skill ${skillName} is whitelisted - auto-approved.`
+              )
+            );
+            return {
+              approved: true,
+              message: "Skill is whitelisted - auto-approved.",
+            };
+          }
+
+          const requestId = uuidv4();
+          return new Promise((resolve) => {
+            let timeoutId = null;
+
+            // Resolve exactly once and tear down every waiter, whichever of the
+            // three outcomes lands first: user response, abort, or timeout.
+            const settle = (result) => {
+              delete socket.handleToolApproval;
+              clearTimeout(timeoutId);
+              aibitat.emitter.removeListener("abort", abortListener);
+              resolve(result);
+            };
+
+            // The socket is already gone once the session aborts, so no response
+            // can arrive - settle now instead of parking on the full timeout.
+            function abortListener() {
+              settle({
+                approved: false,
+                message: "Session was aborted while awaiting tool approval.",
+              });
+            }
+            aibitat.emitter.once("abort", abortListener);
+
+            socket.handleToolApproval = (message) => {
+              try {
+                const data = safeJsonParse(message, {});
+                if (
+                  data?.type !== "toolApprovalResponse" ||
+                  data?.requestId !== requestId
+                )
+                  return;
+
+                if (data.approved) {
+                  return settle({
+                    approved: true,
+                    message: "User approved the tool execution.",
+                  });
+                }
+
+                return settle({
+                  approved: false,
+                  message: "Tool call was rejected by the user.",
+                });
+              } catch (e) {
+                console.error("Error handling tool approval response:", e);
+              }
+            };
+
+            socket.send(
+              JSON.stringify({
+                type: "toolApprovalRequest",
+                requestId,
+                skillName,
+                payload,
+                description,
+                timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+              })
+            );
+
+            timeoutId = setTimeout(() => {
+              console.log(
+                chalk.yellow(
+                  `Tool approval request timed out after ${TOOL_APPROVAL_TIMEOUT_MS}ms`
+                )
+              );
+              settle({
+                approved: false,
+                message:
+                  "Tool approval request timed out. User did not respond in time.",
+              });
+            }, TOOL_APPROVAL_TIMEOUT_MS);
+          });
+        };
+
+        /**
+         * Ask the user one or more clarifying questions in a single card and
+         * wait for their answers. With more than one question the card
+         * paginates; with exactly one it renders a simple form. Sends one
+         * websocket request and resolves when the user submits the whole set,
+         * skips, or the timeout elapses.
+         *
+         * @param {Object} options
+         * @param {Array<Object>} options.questions - Question objects, each with shape:
+         *   { kind: "input"|"choice", question: string, ... per-kind fields }
+         * @param {boolean} [options.allowSkip=true] - Whether the user can skip individual questions
+         * @param {number} [options.timeoutMs] - Override timeout (ms)
+         * @returns {Promise<{ skipped: boolean, timedOut: boolean, answers: Array<{skipped: boolean, answer: any}> }>}
+         */
+        aibitat.requestUserClarification = async function ({
+          questions = [],
+          allowSkip = true,
+          timeoutMs = CLARIFICATION_DEFAULT_TIMEOUT_MS,
+        }) {
+          const requestId = uuidv4();
+          return new Promise((resolve) => {
+            let timeoutId = null;
+
+            socket.handleClarificationResponse = (message) => {
+              try {
+                const data = safeJsonParse(message, {});
+                if (
+                  data?.type !== "clarificationResponse" ||
+                  data?.requestId !== requestId
+                )
+                  return;
+
+                delete socket.handleClarificationResponse;
+                clearTimeout(timeoutId);
+
+                if (data.skipped) {
+                  return resolve({
+                    skipped: true,
+                    timedOut: false,
+                    answers: questions.map(() => ({
+                      skipped: true,
+                      answer: null,
+                    })),
+                  });
+                }
+
+                const answers = Array.isArray(data.answers) ? data.answers : [];
+                const normalized = questions.map((_, i) => {
+                  const a = answers[i] || {};
+                  return {
+                    skipped: !!a.skipped,
+                    answer: a.answer ?? null,
+                  };
+                });
+                return resolve({
+                  skipped: false,
+                  timedOut: false,
+                  answers: normalized,
+                });
+              } catch (e) {
+                console.error("Error handling clarification response:", e);
+              }
+            };
+
+            socket.send(
+              JSON.stringify({
+                type: "clarificationRequest",
+                requestId,
+                questions,
+                allowSkip,
+                timeoutMs,
+              })
+            );
+
+            timeoutId = setTimeout(() => {
+              delete socket.handleClarificationResponse;
+              console.log(
+                chalk.yellow(
+                  `Clarification request timed out after ${timeoutMs}ms`
+                )
+              );
+              resolve({
+                skipped: false,
+                timedOut: true,
+                answers: questions.map(() => ({ skipped: true, answer: null })),
+              });
+            }, timeoutMs);
+          });
+        };
+
+        // aibitat.onStart(() => {
+        //   console.log("🚀 starting chat ...");
+        // });
+
+        aibitat.onMessage((message) => {
+          if (message.from !== "USER")
+            Telemetry.sendTelemetry("agent_chat_sent");
+          if (message.from === "USER" && muteUserReply) return;
+          socket.send(JSON.stringify(message));
+        });
+
+        aibitat.onTerminate(() => {
+          // console.log("🚀 chat finished");
+          socket.close();
+        });
+
+        aibitat.onInterrupt(async (node) => {
+          const { feedback, attachments } = await socket.askForFeedback(
+            socket,
+            node
+          );
+          if (WEBSOCKET_BAIL_COMMANDS.includes(feedback)) {
+            socket.close();
+            return;
+          }
+
+          await aibitat.continue(feedback, attachments);
+        });
+
+        /**
+         * Socket wait for feedback on socket
+         *
+         * @param socket The content to summarize. // AIbitatWebSocket & { receive: any, echo: any }
+         * @param node The chat node // { from: string; to: string }
+         * @returns {{ feedback: string, attachments: Array }} The feedback and any attachments.
+         */
+        socket.askForFeedback = (socket, node) => {
+          socket.awaitResponse = (question = "waiting...") => {
+            socket.send(JSON.stringify({ type: "WAITING_ON_INPUT", question }));
+
+            return new Promise(function (resolve) {
+              let socketTimeout = null;
+              // Images generated via inline /img commands while awaiting feedback
+              // are carried into the next real reply so the agent sees them as
+              // vision context, mirroring how persisted /img images are re-read
+              // at session start.
+              let pendingImageAttachments = [];
+              const armTimeout = () => {
+                clearTimeout(socketTimeout);
+                socketTimeout = setTimeout(() => {
+                  console.log(
+                    chalk.red(
+                      `Client took too long to respond, chat thread is dead after ${SOCKET_TIMEOUT_MS}ms`
+                    )
+                  );
+                  resolve({ feedback: "exit", attachments: [] });
+                  return;
+                }, SOCKET_TIMEOUT_MS);
+              };
+
+              socket.handleFeedback = async (message) => {
+                const data = JSON.parse(message);
+                if (data.type !== "awaitingFeedback") return;
+
+                // Intercept the /img slash command so it generates an image
+                // inline instead of being sent to the agent as a normal prompt.
+                // The agent session stays paused and awaiting the next message.
+                if (isImageCommand(data.feedback)) {
+                  armTimeout();
+                  const attachments = await handleImageCommand({
+                    aibitat,
+                    socket,
+                    message: data.feedback,
+                  });
+                  pendingImageAttachments.push(...attachments);
+                  return;
+                }
+
+                delete socket.handleFeedback;
+                clearTimeout(socketTimeout);
+                resolve({
+                  feedback: data.feedback,
+                  attachments: [
+                    ...pendingImageAttachments,
+                    ...(data.attachments || []),
+                  ],
+                });
+                return;
+              };
+
+              armTimeout();
+            });
+          };
+
+          return socket.awaitResponse(`Provide feedback to ${chalk.yellow(
+            node.to
+          )} as ${chalk.yellow(node.from)}.
+           Press enter to skip and use auto-reply, or type 'exit' to end the conversation: \n`);
+        };
+        // console.log("🚀 WS plugin is complete.");
+      },
+    };
+  },
+};
+
+module.exports = {
+  websocket,
+  WEBSOCKET_BAIL_COMMANDS,
+};

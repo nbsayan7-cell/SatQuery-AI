@@ -1,0 +1,281 @@
+import { protectPipelinePayloads } from "../../src/lib/usage/callLogs/format.ts";
+import test from "node:test";
+import assert from "node:assert/strict";
+
+const {
+  normalizePayloadForLog,
+  protectPayloadForLog,
+  serializePayloadForStorage,
+  parseStoredPayload,
+} = await import("../../src/lib/logPayloads.ts");
+const {
+  createStructuredSSECollector,
+  buildStreamSummaryFromEvents,
+  compactStructuredStreamPayload,
+} = await import("../../open-sse/utils/streamPayloadCollector.ts");
+const { FORMATS } = await import("../../open-sse/translator/formats.ts");
+
+test("normalizes JSON strings before log protection and redacts sensitive keys", () => {
+  const protectedPayload = protectPayloadForLog(
+    JSON.stringify({
+      authorization: "Bearer secret-token-value",
+      "x-goog-api-key": "gemini-test-key",
+      nested: {
+        apiKey: "top-secret-key",
+      },
+    })
+  );
+
+  assert.deepEqual(protectedPayload, {
+    authorization: "[REDACTED]",
+    "x-goog-api-key": "[REDACTED]",
+    nested: {
+      apiKey: "[REDACTED]",
+    },
+  });
+});
+
+test("redacts web-impersonation body credentials but preserves non-secret 'capability' diagnostics", () => {
+  const protectedPayload = protectPayloadForLog(
+    JSON.stringify({
+      // real browser-storage credentials that can land in a body field
+      cookie: "ecto_1_sess=abc123",
+      storageState: "{...}",
+      runtimeKey: "rk_live_secret",
+      // non-secret diagnostic fields that happen to be named 'capability' /
+      // 'capabilities' — must survive so call-log artifacts stay useful (#10952
+      // review: do not blanket-redact the generic word 'capability').
+      capability: "Reduced capability (fallback active)",
+      model: {
+        id: "claude-opus-4.8",
+        capabilities: { type: "chat", supports: { vision: true } },
+      },
+    })
+  );
+
+  assert.deepEqual(protectedPayload, {
+    cookie: "[REDACTED]",
+    storageState: "[REDACTED]",
+    runtimeKey: "[REDACTED]",
+    capability: "Reduced capability (fallback active)",
+    model: {
+      id: "claude-opus-4.8",
+      capabilities: { type: "chat", supports: { vision: true } },
+    },
+  });
+});
+
+test("omits encrypted reasoning values from structured log payloads", () => {
+  const encryptedContent = "encrypted".repeat(128);
+  const payload = {
+    output: [
+      {
+        type: "reasoning",
+        encrypted_content: encryptedContent,
+        reasoning_content: "visible diagnostic reasoning",
+      },
+    ],
+  };
+
+  const protectedPayload = protectPayloadForLog(payload) as typeof payload;
+
+  assert.equal(
+    protectedPayload.output[0].encrypted_content,
+    `[omitted: encrypted reasoning, ${encryptedContent.length} chars]`
+  );
+  assert.equal(protectedPayload.output[0].reasoning_content, "visible diagnostic reasoning");
+  assert.equal(payload.output[0].encrypted_content, encryptedContent);
+});
+
+test("omits encrypted reasoning split across captured SSE chunks", () => {
+  const encryptedContent = "opaque-replay-state".repeat(128);
+  const protectedPipeline = protectPipelinePayloads({
+    streamChunks: {
+      provider: [
+        '[12:00:00.000] data: {"type":"response.completed","response":{"output":[{"type":"reasoning","encrypted_',
+        `[12:00:00.001] content":"${encryptedContent}","summary":[]}]}}\n\n`,
+      ],
+    },
+  });
+
+  const storedChunks = protectedPipeline?.streamChunks?.provider ?? [];
+  assert.equal(storedChunks.length, 1);
+  assert.equal(storedChunks[0].includes(encryptedContent), false);
+  assert.equal(storedChunks[0].includes("[omitted: encrypted reasoning]"), true);
+  assert.equal(storedChunks[0].includes('"summary":[]'), true);
+});
+
+test("wraps raw text payloads in JSON-safe objects", () => {
+  const normalized = normalizePayloadForLog("event: ping\ndata: plain-text\n\n");
+
+  assert.deepEqual(normalized, {
+    _rawText: "event: ping\ndata: plain-text\n\n",
+  });
+});
+
+test("serializes truncated payloads as valid JSON objects", () => {
+  const stored = serializePayloadForStorage({ text: "x".repeat(200) }, 80);
+  const parsed: any = parseStoredPayload(stored);
+
+  assert.equal(parsed._truncated, true);
+  assert.equal(parsed._originalSize > 80, true);
+  assert.equal(typeof parsed._preview, "string");
+});
+
+test("structured SSE collector preserves event order and marks truncation", () => {
+  // Each collected event now also carries an ISO `timestamp` field (#5834 observability),
+  // which enlarges per-event bytes. Give the byte budget enough headroom so truncation
+  // here is driven by maxEvents (drop 1 of 3), which is what this test verifies.
+  const collector = createStructuredSSECollector({ maxEvents: 2, maxBytes: 2000 });
+
+  collector.push({ type: "response.created", id: "r1" });
+  collector.push({ type: "response.output_text.delta", delta: "hi" });
+  collector.push({ type: "response.completed" });
+
+  const payload = collector.build({ done: true });
+
+  assert.equal(payload._streamed, true);
+  assert.equal(payload._eventCount, 3);
+  assert.equal(payload._truncated, true);
+  assert.equal(payload._droppedEvents, 1);
+  assert.equal(payload.events.length, 2);
+  assert.equal(payload.events[0].event, "response.created");
+  assert.equal(payload.events[1].event, "response.output_text.delta");
+  assert.deepEqual(payload.summary, { done: true });
+});
+
+test("builds compact OpenAI stream summary for detailed logs", () => {
+  const collector = createStructuredSSECollector({ stage: "provider_response" });
+
+  collector.push({
+    id: "chatcmpl_1",
+    object: "chat.completion.chunk",
+    created: 123,
+    model: "gpt-4.1-mini",
+    choices: [{ index: 0, delta: { role: "assistant", content: "Hello " } }],
+  });
+  collector.push({
+    id: "chatcmpl_1",
+    object: "chat.completion.chunk",
+    created: 123,
+    model: "gpt-4.1-mini",
+    choices: [{ index: 0, delta: { content: "world" } }],
+  });
+  collector.push({
+    id: "chatcmpl_1",
+    object: "chat.completion.chunk",
+    created: 123,
+    model: "gpt-4.1-mini",
+    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+  });
+
+  const summary = buildStreamSummaryFromEvents(
+    collector.getEvents(),
+    FORMATS.OPENAI,
+    "gpt-4.1-mini"
+  );
+  const compact: any = compactStructuredStreamPayload(
+    collector.build(summary, { includeEvents: false })
+  );
+
+  assert.equal(compact.object, "chat.completion");
+  assert.equal(compact.choices[0].message.content, "Hello world");
+  assert.equal(compact.choices[0].finish_reason, "stop");
+  assert.equal(compact._omniroute_stream.stage, "provider_response");
+  assert.equal(compact._omniroute_stream.eventCount, 3);
+  assert.equal("events" in compact, false);
+});
+
+test("builds compact Claude stream summary for detailed logs", () => {
+  const collector = createStructuredSSECollector({ stage: "provider_response" });
+
+  collector.push({
+    type: "message_start",
+    message: {
+      id: "msg_1",
+      model: "claude-sonnet-4",
+      role: "assistant",
+      usage: { input_tokens: 11 },
+    },
+  });
+  collector.push({
+    type: "content_block_start",
+    index: 0,
+    content_block: { type: "text", text: "" },
+  });
+  collector.push({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "text_delta", text: "你好" },
+  });
+  collector.push({
+    type: "message_delta",
+    delta: { stop_reason: "end_turn" },
+    usage: { output_tokens: 7 },
+  });
+
+  const summary = buildStreamSummaryFromEvents(
+    collector.getEvents(),
+    FORMATS.CLAUDE,
+    "claude-sonnet-4"
+  );
+  const compact: any = compactStructuredStreamPayload(
+    collector.build(summary, { includeEvents: false })
+  );
+
+  assert.equal(compact.type, "message");
+  assert.equal(compact.model, "claude-sonnet-4");
+  assert.deepEqual(compact.content, [{ type: "text", text: "你好" }]);
+  assert.equal(compact.usage.input_tokens, 11);
+  assert.equal(compact.usage.output_tokens, 7);
+  assert.equal(compact._omniroute_stream.eventCount, 4);
+});
+
+test("builds compact OpenAI summary with reasoning alias (delta.reasoning)", () => {
+  const collector = createStructuredSSECollector({ stage: "provider_response" });
+
+  collector.push({
+    id: "chatcmpl_r1",
+    object: "chat.completion.chunk",
+    created: 100,
+    model: "moonshotai/kimi-k2.5",
+    choices: [{ index: 0, delta: { role: "assistant" } }],
+  });
+  collector.push({
+    id: "chatcmpl_r1",
+    object: "chat.completion.chunk",
+    created: 100,
+    model: "moonshotai/kimi-k2.5",
+    choices: [{ index: 0, delta: { reasoning: "Let me think..." } }],
+  });
+  collector.push({
+    id: "chatcmpl_r1",
+    object: "chat.completion.chunk",
+    created: 100,
+    model: "moonshotai/kimi-k2.5",
+    choices: [{ index: 0, delta: { content: "The answer is 4." } }],
+  });
+  collector.push({
+    id: "chatcmpl_r1",
+    object: "chat.completion.chunk",
+    created: 100,
+    model: "moonshotai/kimi-k2.5",
+    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+  });
+
+  const summary = buildStreamSummaryFromEvents(
+    collector.getEvents(),
+    FORMATS.OPENAI,
+    "moonshotai/kimi-k2.5"
+  );
+  const compact: any = compactStructuredStreamPayload(
+    collector.build(summary, { includeEvents: false })
+  );
+
+  assert.equal(compact.object, "chat.completion");
+  assert.equal(compact.choices[0].message.content, "The answer is 4.");
+  assert.equal(compact.choices[0].message.reasoning_content, "Let me think...");
+  assert.equal(compact.choices[0].finish_reason, "stop");
+});

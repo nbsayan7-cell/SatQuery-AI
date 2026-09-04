@@ -1,0 +1,30 @@
+# =============================================================================
+# ANNOUNCEMENT BAR CONFIGURATION - MAIN LANDING PAGE
+# =============================================================================
+# Unifying template (shared across all nine Quarto sites, 2026-04):
+#   Line 1  — identity + primary CTA (what is THIS site)
+#   Line 2  — the book (or, on book sites, the other volume)
+#   Line 3  — "Alongside the book:" sibling row (3 most-relevant verbs)
+#   Line 4  — newsletter
+#
+# The landing page is the entry for the whole ecosystem, so its bar covers
+# all four learner verbs in line 2 and adds a dedicated teacher-tools line 3
+# before the newsletter. This is the ONLY site that uses a 5-line bar;
+# every other site uses 4.
+# =============================================================================
+
+website:
+  announcement:
+    icon: megaphone
+    dismissable: true
+    type: primary
+    position: below-navbar
+    # Each line is wrapped so the stylesheet can address it. On a phone the
+    # bar is pinned above a scroll-snap container, so it never scrolls away;
+    # at three dense lines it held 26% of a 390px screen permanently. The
+    # sibling-projects line is hidden below 600px because it is the longest
+    # and every destination on it also sits in the navbar.
+    content: |
+      <span class="mls-ann-line">**ML Systems** — an open-access textbook on the engineering of intelligent systems.</span>
+      <span class="mls-ann-line">**The book:** [Vol I: Foundations](https://mlsysbook.ai/vol1/) · [Vol II: At Scale](https://mlsysbook.ai/vol2/) — open access.</span>
+      <span class="mls-ann-line mls-ann-siblings">**Companion resources:** [TinyTorch](https://mlsysbook.ai/tinytorch/) (build) · [Hardware Kits](https://mlsysbook.ai/kits/) (deploy) · [MLSys·im](https://mlsysbook.ai/mlsysim/) (model) · [Labs](https://mlsysbook.ai/labs/) (explore) · [Lecture Slides](https://mlsysbook.ai/slides/) (teach) · [StaffML](https://mlsysbook.ai/staffml/) (practice) · [Newsletter](https://mlsysbook.ai/newsletter/)</span>

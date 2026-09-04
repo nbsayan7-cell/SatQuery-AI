@@ -1,0 +1,23 @@
+# =============================================================================
+# ANNOUNCEMENT BAR CONFIGURATION - LABS
+# =============================================================================
+# Unifying template (shared across all nine Quarto sites, 2026-04):
+#   Line 1  — identity + primary CTA (what is THIS site)
+#   Line 2  — the book
+#   Line 3  — "Alongside the book:" sibling row (3 most-relevant verbs)
+#   Line 4  — newsletter
+#
+# Labs' role in the curriculum is the "explore" lens (interactive Marimo
+# notebooks). Line 3 omits Labs itself; the release window lives in line 1.
+# =============================================================================
+
+website:
+  announcement:
+    icon: megaphone
+    dismissable: true
+    type: primary
+    position: below-navbar
+    content: |
+      **Labs** — interactive Marimo notebooks for ML systems trade-offs. Work in progress, full release Fall 2027.<br>
+      **The book:** [Vol I: Foundations](https://mlsysbook.ai/vol1/) · [Vol II: At Scale](https://mlsysbook.ai/vol2/) — open access.<br>
+      **Companion resources:** [TinyTorch](https://mlsysbook.ai/tinytorch/) (build) · [Hardware Kits](https://mlsysbook.ai/kits/) (deploy) · [MLSys·im](https://mlsysbook.ai/mlsysim/) (model) · [Labs](https://mlsysbook.ai/labs/) (explore) · [Lecture Slides](https://mlsysbook.ai/slides/) (teach) · [StaffML](https://mlsysbook.ai/staffml/) (practice) · [Newsletter](https://mlsysbook.ai/newsletter/)

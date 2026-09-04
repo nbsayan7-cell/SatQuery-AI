@@ -1,0 +1,1 @@
+- **feat(audio):** proxy native ElevenLabs voices, text-to-speech, and speech-to-text HTTP routes through stored OmniRoute credentials, preserving query strings, multipart uploads, binary responses, and upstream errors (#10556).

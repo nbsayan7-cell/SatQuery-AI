@@ -1,0 +1,380 @@
+name: '🔧 Infra · 🐳 Container (Windows)'
+
+# =============================================================================
+# 🐳 Windows Container — Build and push the Windows Quarto build container
+# =============================================================================
+#
+# Builds the Windows Docker image using native Docker (not Buildx, which has
+# compatibility issues with Windows containers on GitHub Actions).
+#
+# Flow:
+#   1. CHECKOUT & LOGIN — Authenticate to GHCR
+#   2. BUILD            — Native Docker build with optional cache bypass
+#   3. PUSH             — Push image to GHCR and extract digest
+#   4. SUMMARY          — Report build status and image metadata
+#
+# Triggers:
+#   - push (dev): Changes to book/tools/dependencies/ or book/docker/windows/
+#   - schedule: Weekly rebuild (Sunday 2am UTC, after Linux container)
+#   - workflow_dispatch: Manual with force_rebuild, no_cache options
+#   - workflow_call: Reusable by other workflows
+#
+# Deploys to: ghcr.io/harvard-edge/mlsysbook/quarto-windows:latest
+# Secrets:    GITHUB_TOKEN (automatic)
+# Vars:       BOOK_DOCKER
+#
+# Related:
+#   - infra-container-linux.yml — Linux container build (runs 2h before)
+#   - infra-health-check.yml    — Daily validation of built containers
+#   - infra-cleanup-caches.yml  — Weekly GHA cache cleanup
+#
+# =============================================================================
+
+# Prevent multiple builds running simultaneously
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild even if no changes'
+        required: false
+        default: false
+        type: boolean
+      no_cache:
+        description: 'Disable Docker build cache (fresh build)'
+        required: false
+        default: false
+        type: boolean
+      container_registry:
+        description: 'Container registry URL'
+        required: false
+        default: 'ghcr.io'
+        type: string
+      container_name:
+        description: 'Container image name'
+        required: false
+        default: 'quarto-windows'
+        type: string
+      container_tag:
+        description: 'Container tag'
+        required: false
+        default: 'latest'
+        type: string
+  workflow_call:
+    inputs:
+      force_rebuild:
+        required: false
+        default: false
+        type: boolean
+      no_cache:
+        required: false
+        default: false
+        type: boolean
+      container_registry:
+        required: false
+        default: 'ghcr.io'
+        type: string
+      container_name:
+        required: false
+        default: 'quarto-windows'
+        type: string
+      container_tag:
+        required: false
+        default: 'latest'
+        type: string
+
+    outputs:
+      build-status:
+        description: "Container build status (success/failure/skipped)"
+        value: ${{ jobs.build.outputs.build-status }}
+      image-name:
+        description: "Full container image name with registry"
+        value: ${{ jobs.build.outputs.image-name }}
+      image-digest:
+        description: "Container image digest (SHA256)"
+        value: ${{ jobs.build.outputs.image-digest }}
+      cache-hit:
+        description: "Whether build used cache (true/false)"
+        value: ${{ jobs.build.outputs.cache-hit }}
+
+  # Re-enable automatic triggers
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly rebuild (Sunday at 2am - after Linux container)
+  push:
+    branches: [dev]  # Only trigger on dev branch, not main
+    paths:
+      - 'book/tools/dependencies/**'
+      - 'book/docker/windows/**'
+      - '.github/workflows/book-build-windows-container.yml'
+
+env:
+  # =============================================================================
+  # PATH CONFIGURATION - Uses GitHub Repository Variables (Settings > Variables)
+  # =============================================================================
+  # MLSysBook content lives under book/ to accommodate TinyTorch at root
+  # Use ${{ vars.BOOK_ROOT }}, ${{ vars.BOOK_DOCKER }}, etc. in workflow steps
+  # Variables: BOOK_ROOT, BOOK_DOCKER, BOOK_TOOLS, BOOK_QUARTO, BOOK_DEPS
+
+  # Container Registry Configuration (configurable via inputs)
+  REGISTRY: ${{ (github.event_name == 'workflow_dispatch' && inputs.container_registry) || 'ghcr.io' }}
+  IMAGE_NAME: ${{ github.repository }}/${{ (github.event_name == 'workflow_dispatch' && inputs.container_name) || 'quarto-windows' }}
+  CONTAINER_TAG: ${{ (github.event_name == 'workflow_dispatch' && inputs.container_tag) || 'latest' }}
+
+  # Container Build Configuration
+  # Using vars.BOOK_DOCKER (repository variable) - works in all contexts
+  DOCKERFILE_PATH: ./${{ vars.BOOK_DOCKER }}/windows/Dockerfile
+  CONTEXT_PATH: .
+
+jobs:
+  build:
+    runs-on: windows-latest
+    if: github.repository_owner == 'harvard-edge'
+    timeout-minutes: 180 # takes about 2 hours to build on Windows
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      build-status: ${{ steps.build.outputs.build-status }}
+      image-name: ${{ steps.build.outputs.image-name }}
+      image-digest: ${{ steps.build.outputs.image-digest }}
+      cache-hit: ${{ steps.build.outputs.cache-hit }}
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v6
+
+      # Skip Docker Buildx for Windows containers - use native Docker engine
+      # Buildx doesn't properly support Windows containers on GitHub Actions
+      # - name: 🛠️ Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v4
+
+      - name: 🔐 Log in to Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🧹 Free runner disk space
+        shell: pwsh
+        run: |
+          Write-Host "📊 Disk space BEFORE cleanup:"
+          Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Used -gt 0 } | Format-Table Name, @{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}}, @{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}}
+
+          # Pre-installed toolchains and SDKs not used by the Quarto Windows container build.
+          # NOTE: Do NOT remove anything from C:\ProgramData\chocolatey (scoop uses choco fallback),
+          # do NOT touch C:\Users\runneradmin\scoop (scoop state for the build),
+          # and do NOT touch Docker binaries or Windows container images already pulled.
+          $paths = @(
+            # Original toolchain removals
+            "C:\hostedtoolcache",
+            "C:\mingw64",
+            "C:\ghcup",
+            "C:\cabal",
+            "C:\Strawberry",
+            "$env:LOCALAPPDATA\Temp\*",
+
+            # Additional pre-installed SDKs the Quarto build does not use
+            "C:\Android",
+            "$env:ANDROID_HOME",
+            "$env:ANDROID_SDK_ROOT",
+            "C:\Program Files\Android",
+            "C:\Program Files (x86)\Android",
+            "C:\Program Files\Go",
+            "C:\Program Files\Microsoft\jdk-*",
+            "C:\Program Files\Java",
+            "C:\Program Files\dotnet\sdk\*",
+            "C:\Program Files\Unity Hub",
+            "C:\Program Files (x86)\Windows Kits\10\ExtensionSDKs",
+            "C:\tools\php*",
+            "C:\tools\ruby*",
+            "C:\Julia",
+            "C:\Miniconda",
+            "C:\Rust",
+            "C:\Users\runneradmin\.cargo",
+            "C:\Users\runneradmin\.rustup",
+            "C:\vcpkg",
+            "C:\SeleniumWebDrivers",
+
+            # Package manager caches that the Quarto build does not consume
+            "$env:LOCALAPPDATA\NuGet\Cache",
+            "$env:LOCALAPPDATA\NuGet\v3-cache",
+            "$env:APPDATA\npm-cache",
+            "$env:LOCALAPPDATA\pip\Cache",
+            "$env:LOCALAPPDATA\ChocolateyHttpCache",
+
+            # Windows update download cache (re-fetched on demand if needed)
+            "C:\Windows\SoftwareDistribution\Download\*"
+          )
+          foreach ($p in $paths) {
+            if ($p -and (Test-Path $p)) {
+              Write-Host "Removing $p ..."
+              Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue
+            }
+          }
+
+          # Empty recycle bin in case prior cleanup sent large dirs there
+          try { Clear-RecycleBin -Force -ErrorAction SilentlyContinue } catch {}
+
+          # Prune any stale Docker data (safe: no image has been built yet this run)
+          docker system prune -af 2>$null
+          docker builder prune -af 2>$null
+          docker volume prune -f  2>$null
+
+          Write-Host "📊 Disk space AFTER cleanup:"
+          Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Used -gt 0 } | Format-Table Name, @{N='Used(GB)';E={[math]::Round($_.Used/1GB,1)}}, @{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}}
+
+      - name: 🏷️ Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ env.CONTAINER_TAG }}
+
+      - name: 🔓 Allow non-distributable layers to reach the registry
+        shell: pwsh
+        run: |
+          # The image is built FROM mcr.microsoft.com/windows/server, whose base
+          # layers are marked non-distributable. Docker refuses to upload those
+          # by default, so the manifest lands at GHCR referencing blobs the
+          # registry never received and the push ends in "unknown blob" after a
+          # two-hour build. Opting in for this registry uploads them instead.
+          $configDir = "C:\ProgramData\Docker\config"
+          $configPath = Join-Path $configDir "daemon.json"
+          New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+
+          if (Test-Path $configPath) {
+            $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          } else {
+            $config = [PSCustomObject]@{}
+          }
+
+          $registries = @("${{ env.REGISTRY }}")
+          $config | Add-Member -NotePropertyName "allow-nondistributable-artifacts" `
+                               -NotePropertyValue $registries -Force
+
+          $config | ConvertTo-Json -Depth 10 | Set-Content $configPath -Encoding utf8
+          Write-Host "📄 daemon.json:"
+          Get-Content $configPath | Write-Host
+
+          Restart-Service docker
+          $deadline = (Get-Date).AddMinutes(2)
+          while ((Get-Date) -lt $deadline) {
+            docker info --format '{{.ServerVersion}}' 2>$null | Out-Null
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep -Seconds 3
+          }
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "❌ Docker daemon did not come back after restart"
+            exit 1
+          }
+          Write-Host "✅ Docker daemon restarted with $($registries -join ', ') allowed"
+
+      - name: 🐳 Build and Push Windows container
+        id: build
+        shell: pwsh
+        # Use native Docker instead of book/docker/build-push-action for Windows containers
+        # Buildx has compatibility issues with Windows containers on GitHub Actions
+        run: |
+          # Extract image name and tag from metadata
+          $IMAGE_TAG = "${{ steps.meta.outputs.tags }}"
+          $NO_CACHE = "${{ github.event_name == 'workflow_dispatch' && inputs.no_cache || false }}"
+
+          Write-Host "🔨 Building Windows container..."
+          Write-Host "📊 Image: $IMAGE_TAG"
+          Write-Host "📊 Context: ${{ env.CONTEXT_PATH }}"
+          Write-Host "📊 Dockerfile: ${{ env.DOCKERFILE_PATH }}"
+          Write-Host "📊 No Cache: $NO_CACHE"
+
+          # Build the container using native Docker
+          $buildArgs = @(
+            "build",
+            "--file", "${{ env.DOCKERFILE_PATH }}",
+            "--tag", $IMAGE_TAG
+          )
+
+          # Add no-cache flag if requested
+          if ($NO_CACHE -eq "true") {
+            $buildArgs += "--no-cache"
+            Write-Host "🚫 Cache disabled - building from scratch"
+          } else {
+            Write-Host "💾 Using Docker cache"
+          }
+
+          # Add labels from metadata
+          $labels = "${{ steps.meta.outputs.labels }}"
+          if ($labels) {
+            $labels -split "`n" | ForEach-Object {
+              if ($_.Trim()) {
+                $buildArgs += "--label", $_.Trim()
+              }
+            }
+          }
+
+          # Add context path
+          $buildArgs += "${{ env.CONTEXT_PATH }}"
+
+          Write-Host "🔨 Running: docker $($buildArgs -join ' ')"
+          & docker @buildArgs
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "❌ Docker build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+          Write-Host "✅ Build completed successfully"
+
+          # Push the container
+          Write-Host "📤 Pushing container to registry..."
+          & docker push $IMAGE_TAG
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "❌ Docker push failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
+          Write-Host "✅ Push completed successfully"
+
+          # Get image digest for output
+          $DIGEST = & docker inspect --format='{{index .RepoDigests 0}}' $IMAGE_TAG 2>$null
+          if ($DIGEST -match '@(.+)$') {
+            $DIGEST = $matches[1]
+          } else {
+            $DIGEST = "unknown"
+          }
+
+          # Set outputs for build summary
+          "digest=$DIGEST" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "cache-hit=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: 📊 Build Summary
+        id: build-summary
+        if: always()
+        shell: pwsh
+        run: |
+          # Determine build status
+          if ("${{ steps.build.outcome }}" -eq "success") {
+            $BUILD_STATUS = "success"
+          } else {
+            $BUILD_STATUS = "failure"
+          }
+
+          # Extract build information
+          $IMAGE_NAME = "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.CONTAINER_TAG }}"
+          $IMAGE_DIGEST = "${{ steps.build.outputs.digest }}"
+          $CACHE_HIT = "${{ steps.build.outputs.cache-hit }}"
+
+          "build-status=$BUILD_STATUS" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "image-name=$IMAGE_NAME" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "image-digest=$IMAGE_DIGEST" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "cache-hit=$CACHE_HIT" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+          Write-Host "📊 Build Status: $BUILD_STATUS"
+          Write-Host "🐳 Image: $IMAGE_NAME"
+          Write-Host "🔍 Digest: $IMAGE_DIGEST"
+          Write-Host "💾 Cache Hit: $CACHE_HIT"

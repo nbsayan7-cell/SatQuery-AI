@@ -1,0 +1,1 @@
+- fix(ui): let AnySearch use the normal provider-icon fallback when LobeHub has no matching icon (#11449)

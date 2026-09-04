@@ -1,0 +1,1 @@
+- **docs(assets):** retired two raster images whose redistribution provenance could not be verified ([#11736](https://github.com/diegosouzapw/OmniRoute/pull/11736)) — PicoClaw documentation now reuses the existing SVG, while Zoo Code remains a text link without an image.

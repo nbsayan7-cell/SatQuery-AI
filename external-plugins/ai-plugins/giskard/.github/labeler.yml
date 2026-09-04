@@ -1,0 +1,24 @@
+"Scope: Core":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "libs/giskard-core/**"
+
+"Scope: LLM":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "libs/giskard-llm/**"
+
+"Scope: Agents":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "libs/giskard-agents/**"
+
+"Scope: Checks":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "libs/giskard-checks/**"
+
+"Scope: Scan":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "libs/giskard-scan/**"

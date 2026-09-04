@@ -1,0 +1,140 @@
+name: '🔮 Labs · 👁️ Preview (Dev)'
+
+# =============================================================================
+# Labs — Dev Preview Deploy
+# =============================================================================
+#
+# Exports all Marimo notebooks to WASM HTML, builds the Quarto portal site,
+# and deploys to the dev preview site via SSH. Gated on Validate (Dev) passing.
+#
+# Flow:
+#   1. BUILD_WHEEL  — Build mlsysim Python wheel for WASM
+#   2. EXPORT_WASM  — Export all lab notebooks as WASM HTML
+#   3. BUILD_SITE   — Quarto render + merge WASM exports into build
+#   4. DEPLOY       — Push to dev preview repo via SSH
+#
+# Triggers:
+#   - workflow_run: after Validate (Dev) succeeds on dev branch
+#   - workflow_dispatch: manual
+#
+# Deploys to: harvard-edge.github.io/{DEV_REPO}/{DEV_LABS_PATH}/
+# Secrets:    SSH_DEPLOY_KEY
+# Vars:       LABS_ROOT, BOOK_TOOLS, DEV_REPO, DEV_REPO_URL, DEV_LABS_PATH
+#
+# Related:
+#   - labs-validate-dev.yml — Gates this workflow (must pass first)
+#   - labs-publish-live.yml — Production deploy to mlsysbook.ai/labs/
+#
+# =============================================================================
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ['🔮 Labs · ✅ Validate (Dev)']
+    types: [completed]
+    branches: [dev]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: labs-dev-deploy
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    name: '🔮 Build & Deploy Labs (Dev)'
+    if: (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'dev') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v6
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ vars.PYTHON_VERSION || '3.12' }}
+
+      - name: 📦 Install dependencies
+        run: |
+          pip install build marimo
+          pip install -r labs/requirements.txt
+          pip install mlsysim/
+
+      - name: 🔧 Setup Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: 🔨 Build Labs Site
+        env:
+          LABS_ROOT: ${{ vars.LABS_ROOT || 'labs' }}
+        run: bash labs/tools/build_site.sh
+
+      - name: 🔗 Rewrite URLs for dev site
+        run: bash .github/scripts/rewrite-dev-urls.sh labs ${{ vars.LABS_ROOT }}/_build
+
+      - name: 🔧 Modify announcement for dev preview
+        run: |
+          echo "🔧 Modifying announcement banner for development preview..."
+          COMMIT_SHORT="${{ github.sha }}"
+          COMMIT_SHORT="${COMMIT_SHORT:0:8}"
+
+          python3 ${{ vars.BOOK_TOOLS }}/scripts/publish/modify_dev_announcement.py \
+            ${{ vars.LABS_ROOT }}/_build \
+            --verbose \
+            --commit-hash "${{ github.sha }}" \
+            --commit-short "$COMMIT_SHORT"
+
+      - name: 🚀 Deploy to Dev Site via SSH
+        env:
+          SSH_DEPLOY_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
+        run: |
+          echo "🔐 Starting ssh-agent..."
+          eval "$(ssh-agent -s)"
+          echo "$SSH_DEPLOY_KEY" | tr -d '\r' | ssh-add - > /dev/null
+
+          # Add github.com to known hosts
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+          echo "🔧 Configuring git..."
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+
+          echo "🔄 Cloning dev preview repository (${{ vars.DEV_REPO }})..."
+          git clone --depth=1 ${{ vars.DEV_REPO_URL }} target-repo
+
+          cd target-repo
+
+          echo "🧹 Cleaning ${{ vars.DEV_LABS_PATH }} directory..."
+          rm -rf ${{ vars.DEV_LABS_PATH }}
+          mkdir -p ${{ vars.DEV_LABS_PATH }}
+
+          echo "🚚 Copying Labs site content..."
+          cp -r "${{ github.workspace }}/${{ vars.LABS_ROOT }}/_build/." ${{ vars.DEV_LABS_PATH }}/
+
+          echo "🔍 Validating deployment content..."
+          if [ ! -f "${{ vars.DEV_LABS_PATH }}/index.html" ]; then
+            echo "❌ CRITICAL: ${{ vars.DEV_LABS_PATH }}/index.html is missing. Aborting deployment."
+            exit 1
+          fi
+
+          echo "🔮 Contents of ${{ vars.DEV_LABS_PATH }}/:"
+          ls -la ${{ vars.DEV_LABS_PATH }}/ | head -10
+
+          echo "🔮 Committing and pushing changes..."
+          git add .
+          git commit -m "🔮 Deploy Labs dev to /${{ vars.DEV_LABS_PATH }}/ from ${{ github.sha }}" --allow-empty || echo "🟡 Nothing to commit"
+
+          # Retry push with rebase to handle concurrent deploys
+          for i in 1 2 3; do
+            if git push origin main 2>/dev/null; then
+              echo "✅ Push succeeded on attempt $i"
+              break
+            fi
+            echo "⚠️ Push failed (attempt $i/3), pulling with rebase..."
+            git pull --rebase origin main || true
+          done
+
+          echo "✅ Labs deployed to: https://harvard-edge.github.io/${{ vars.DEV_REPO }}/${{ vars.DEV_LABS_PATH }}/"

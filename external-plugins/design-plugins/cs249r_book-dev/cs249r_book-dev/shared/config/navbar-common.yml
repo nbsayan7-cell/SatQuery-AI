@@ -1,0 +1,189 @@
+# =============================================================================
+# SHARED NAVBAR CONFIGURATION
+# =============================================================================
+# Single source of truth for the navigation bar across all HTML builds
+# (landing page, vol1, vol2). Included via metadata-files in each config.
+#
+# All hrefs use absolute mlsysbook.ai URLs so the navbar is identical everywhere.
+# The rewrite-dev-urls.sh script converts these to relative paths for dev preview.
+#
+# To add a new subsite:
+#   1. Add the navbar entry here
+#   2. Add the path mapping in .github/scripts/rewrite-dev-urls.sh
+#
+# ── Design rationale ──
+# Six dropdowns, each serving ONE audience with ONE intent:
+#   Read    → everyone      → consume the textbook
+#   Build   → students      → hands-on tools (ordered by increasing commitment)
+#   Teach   → instructors   → adopt the course (orient → equip → plan)
+#   Prepare → job seekers   → career readiness (explore → plan → test)
+#   Connect → community     → newsletter, network, events, partners
+#   About   → everyone      → learn about the project
+# =============================================================================
+
+website:
+  navbar:
+    background: light
+    pinned: true
+    collapse: true
+    # collapse-below: xl — with 6 left dropdowns + 4 right tools, the full nav
+    # needs ~1100 px of horizontal space. At lg (992 px) the dropdowns wrap into
+    # a vertical stack and the brand title breaks across lines. Collapsing to
+    # the hamburger at xl (<1200 px) keeps tablets and 13-inch laptops clean.
+    # If you lower this back to "lg", also widen the 769–1199 px media query
+    # in shared/styles/partials/_mobile.scss — that block currently assumes
+    # the navbar is collapsed in that range.
+    collapse-below: "xl"
+    href: https://mlsysbook.ai/
+    left:
+      # ── Read: the books ──
+      - text: "Read"
+        menu:
+          - icon: journal
+            text: "Volume I: Foundations"
+            href: https://mlsysbook.ai/vol1/
+          - icon: journal
+            text: "Volume II: Scaling"
+            href: https://mlsysbook.ai/vol2/
+          - text: "---"
+          - icon: fire
+            text: "TinyTorch (Standalone Book)"
+            href: https://mlsysbook.ai/tinytorch/
+          - text: "---"
+          - icon: file-pdf
+            text: "Volume I PDF"
+            href: https://mlsysbook.ai/vol1/assets/downloads/Machine-Learning-Systems-Vol1.pdf
+            target: _blank
+          - icon: file-pdf
+            text: "Volume II PDF"
+            href: https://mlsysbook.ai/vol2/assets/downloads/Machine-Learning-Systems-Vol2.pdf
+            target: _blank
+      # ── Build: hands-on tools (ordered by increasing commitment) ──
+      # This menu stays consistent across every site: one row per tool, no
+      # per-tool variation. Companion paper / guide PDFs belong in each
+      # tool's own site-local dropdown (e.g. the "TinyTorch" menu inside
+      # tinytorch/quarto/_quarto.yml, the "MLSys·im" menu inside the
+      # mlsysim site config) so the paper sits next to the site it
+      # documents rather than under the ecosystem-level Build index.
+      - text: "Build"
+        menu:
+          - icon: sliders
+            text: "Labs"
+            href: https://mlsysbook.ai/labs/
+          - icon: fire
+            text: "TinyTorch"
+            href: https://mlsysbook.ai/tinytorch/
+          - icon: cpu
+            text: "Hardware Kits"
+            href: https://mlsysbook.ai/kits/
+          - icon: calculator
+            text: "MLSys·im"
+            href: https://mlsysbook.ai/mlsysim/
+      # ── Teach & Executive: instructor adoption & executive programs ──
+      - text: "Teach"
+        menu:
+          - icon: person-badge
+            text: "AI Engineering for Leaders (HarvardX)"
+            href: https://mlsysbook.ai/online/ai-engineering-for-leaders/
+          - text: "---"
+          - icon: signpost-split
+            text: "CS249r Course Map"
+            href: https://mlsysbook.ai/instructors/course-map.html
+          - icon: easel
+            text: "Lecture Slides"
+            href: https://mlsysbook.ai/slides/
+          - icon: person-video3
+            text: "Instructor Hub"
+            href: https://mlsysbook.ai/instructors/
+      # ── Prepare: career readiness (explore → plan → test) ──
+      - text: "Prepare"
+        menu:
+          - icon: mortarboard
+            text: "StaffML"
+            href: https://mlsysbook.ai/staffml/
+          - icon: map
+            text: "Study Plans"
+            href: https://mlsysbook.ai/staffml/plans
+          - icon: lightning
+            text: "Gauntlet Mode"
+            href: https://mlsysbook.ai/staffml/gauntlet
+          - text: "---"
+          - icon: file-pdf
+            text: "StaffML Paper"
+            href: https://mlsysbook.ai/staffml/downloads/StaffML-Paper.pdf
+            target: _blank
+      # ── Connect: participate ──
+      - text: "Connect"
+        menu:
+          - icon: envelope
+            text: "Newsletter"
+            href: https://mlsysbook.ai/newsletter/
+          - icon: globe
+            text: "Global Network"
+            href: https://mlsysbook.ai/community/
+          - icon: calendar-event
+            text: "Workshops & Events"
+            href: https://mlsysbook.ai/community/events.html
+          - icon: people
+            text: "Partners & Sponsors"
+            href: https://mlsysbook.ai/community/partners.html
+      # ── About: who we are ──
+      - text: "About"
+        menu:
+          - icon: bullseye
+            text: "Mission"
+            href: https://mlsysbook.ai/about/
+          - icon: book
+            text: "Our Story"
+            href: https://mlsysbook.ai/about/#story
+          - text: "---"
+          - icon: person-lines-fill
+            text: "People"
+            href: https://mlsysbook.ai/about/people.html
+          - icon: people
+            text: "Contributors"
+            href: https://mlsysbook.ai/about/contributors.html
+          - text: "---"
+          - icon: cc-circle
+            text: "License"
+            href: https://mlsysbook.ai/about/license.html
+    right:
+      # Right-side order: low-friction conversions first, dev tooling last.
+      #   Subscribe — primary engagement via the newsletter page. Avoid an
+      #   internal #subscribe link here: Safari content blockers can hide
+      #   anchors whose href contains "subscribe", while the newsletter URL
+      #   remains a normal page link and still offers the modal form.
+      #   Star      — 1-click GitHub interaction, social proof
+      #   Support   — financial commitment, post-engagement CTA
+      #   GitHub ▼  — developer dropdown, sits next to Quarto's theme + search tools
+      - icon: envelope
+        text: "Subscribe"
+        href: https://mlsysbook.ai/newsletter/
+        id: "navbar-subscribe-btn"
+      - icon: star
+        text: "Star"
+        href: https://github.com/harvard-edge/cs249r_book
+        target: _blank
+      - icon: heart
+        text: "Support"
+        href: https://opencollective.com/mlsysbook
+        target: _blank
+      - icon: github
+        text: "GitHub"
+        menu:
+          - icon: chat
+            text: "Discussions"
+            href: https://github.com/harvard-edge/cs249r_book/discussions
+            target: _blank
+          - icon: pencil
+            text: "Edit this page"
+            href: https://github.com/harvard-edge/cs249r_book
+            target: _blank
+          - icon: bug
+            text: "Report an issue"
+            href: https://github.com/harvard-edge/cs249r_book/issues/new
+            target: _blank
+          - icon: code
+            text: "View source"
+            href: https://github.com/harvard-edge/cs249r_book
+            target: _blank

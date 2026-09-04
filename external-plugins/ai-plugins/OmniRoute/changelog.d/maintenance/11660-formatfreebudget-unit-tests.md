@@ -1,0 +1,1 @@
+- **test(opencode-plugin):** add unit test coverage for `formatFreeBudget()` naming helper ([#11660](https://github.com/diegosouzapw/OmniRoute/pull/11660)) — thanks @f9td56dbgh-hub

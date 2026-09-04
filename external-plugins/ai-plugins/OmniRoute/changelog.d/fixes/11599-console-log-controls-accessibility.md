@@ -1,0 +1,1 @@
+- **fix(ui):** Console log Refresh and Copy controls now expose localized accessible names, keep copy actions visible on keyboard focus, and announce copy completion safely ([#11599](https://github.com/diegosouzapw/OmniRoute/pull/11599)) — thanks @pacocartones

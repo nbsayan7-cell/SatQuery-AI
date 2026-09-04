@@ -1,0 +1,23 @@
+name: Docker Dev Staging Images Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      images: >-
+        [{"target":"api-build","file":"Dockerfile.multi","image_name":"lc-dev-staging-api"},
+         {"target":"node","file":"Dockerfile","image_name":"lc-dev-staging"}]
+      tag_suffixes: |
+        ${{ github.sha }}
+        latest
+      build_branch: ${{ github.ref_name }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

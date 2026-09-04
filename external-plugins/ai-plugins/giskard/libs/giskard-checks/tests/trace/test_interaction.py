@@ -1,0 +1,922 @@
+from collections.abc import AsyncGenerator, Generator
+from typing import override
+
+import pytest
+from giskard.checks import (
+    Interact,
+    Interaction,
+    InteractionGenerationError,
+    InteractionSpec,
+    Trace,
+    UserSimulator,
+)
+
+
+class TestInteraction:
+    async def test_interaction_with_static_inputs_and_outputs(self):
+        interaction = Interact(inputs=1, outputs=2)
+
+        generator = interaction.generate(Trace(interactions=[]))
+
+        record = await anext(generator)
+        assert record == Interaction(inputs=1, outputs=2, metadata={})
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(
+                Trace(interactions=[Interaction(inputs=1, outputs=2, metadata={})])
+            )
+
+    async def test_interaction_with_dynamic_inputs_and_outputs(self):
+        interaction = Interact(inputs=lambda: 1, outputs=lambda inputs: inputs + 1)
+
+        generator = interaction.generate(Trace(interactions=[]))
+
+        record = await anext(generator)
+        assert record == Interaction(inputs=1, outputs=2, metadata={})
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(
+                Trace(interactions=[Interaction(inputs=1, outputs=2, metadata={})])
+            )
+
+    async def test_interaction_generation_error_preserves_partial_trace(self):
+        """Direct trace callers can recover completed generator progress."""
+        cleanup_events: list[str] = []
+
+        class FailingInteractionSpec(InteractionSpec[str, str, Trace[str, str]]):
+            @override
+            async def generate(
+                self, trace: Trace[str, str]
+            ) -> AsyncGenerator[Interaction[str, str], Trace[str, str]]:
+                try:
+                    trace = yield Interaction(inputs="first", outputs="result")
+                    yield Interaction(
+                        inputs="second",
+                        outputs=trace.interactions[-1].outputs,
+                    )
+                    raise RuntimeError("Generator error")
+                finally:
+                    cleanup_events.append("closed")
+
+        initial = Trace[str, str](
+            interactions=[Interaction(inputs="existing", outputs="result")]
+        )
+
+        with pytest.raises(InteractionGenerationError) as exc_info:
+            await initial.with_interactions(
+                Interaction(inputs="before", outputs="result"),
+                FailingInteractionSpec(),
+            )
+
+        assert [item.inputs for item in exc_info.value.partial_trace.interactions] == [
+            "existing",
+            "before",
+            "first",
+            "second",
+        ]
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
+        assert str(exc_info.value.__cause__) == "Generator error"
+        assert cleanup_events == ["closed"]
+
+    async def test_nested_generation_error_is_raised_once(self):
+        """A spec driving another spec keeps one wrapper and the richest trace."""
+
+        class InnerSpec(InteractionSpec[str, str, Trace[str, str]]):
+            @override
+            async def generate(
+                self, trace: Trace[str, str]
+            ) -> AsyncGenerator[Interaction[str, str], Trace[str, str]]:
+                yield Interaction(inputs="inner", outputs="result")
+                raise RuntimeError("Generator error")
+
+        class OuterSpec(InteractionSpec[str, str, Trace[str, str]]):
+            @override
+            async def generate(
+                self, trace: Trace[str, str]
+            ) -> AsyncGenerator[Interaction[str, str], Trace[str, str]]:
+                trace = yield Interaction(inputs="outer", outputs="result")
+                _ = await trace.with_interaction(InnerSpec())
+
+        with pytest.raises(InteractionGenerationError) as exc_info:
+            await Trace[str, str]().with_interaction(OuterSpec())
+
+        # The wrapper is raised once, so the root cause stays one hop away and
+        # the inner spec's progress is not discarded by an outer re-wrap.
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
+        assert [item.inputs for item in exc_info.value.partial_trace.interactions] == [
+            "outer",
+            "inner",
+        ]
+
+    async def test_interaction_with_inputs_generator(self):
+        def inputs_generator(
+            trace: Trace[int, int],
+        ) -> Generator[int, Trace[int, int], None]:
+            trace = yield 1
+            trace = yield trace.interactions[-1].outputs + 1
+            trace = yield trace.interactions[-1].outputs + 1
+
+        interaction = Interact(
+            inputs=inputs_generator, outputs=lambda inputs: inputs + 1
+        )
+
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+
+        record = await anext(generator)
+        assert record == Interaction(inputs=1, outputs=2, metadata={})
+        record = await generator.asend(
+            Trace(interactions=[*trace.interactions, record])
+        )
+        assert record == Interaction(inputs=3, outputs=4, metadata={})
+        record = await generator.asend(
+            Trace(interactions=[*trace.interactions, record])
+        )
+        assert record == Interaction(inputs=5, outputs=6, metadata={})
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(Trace(interactions=[*trace.interactions, record]))
+
+    async def test_interaction_with_inputs_generator_custom_trace(self):
+        class CustomTrace(Trace[int, int], frozen=True):
+            def outputs(self) -> int:
+                return self.interactions[-1].outputs if self.interactions else 0
+
+        def inputs_generator(trace: CustomTrace) -> Generator[int, CustomTrace, None]:
+            trace = yield trace.outputs() + 1
+            trace = yield trace.outputs() + 1
+            trace = yield trace.outputs() + 1
+
+        interaction = Interact(
+            inputs=inputs_generator, outputs=lambda inputs: inputs + 1
+        )
+
+        trace = CustomTrace()
+        generator = interaction.generate(trace)
+
+        record = await anext(generator)
+        assert record == Interaction(inputs=1, outputs=2, metadata={})
+        record = await generator.asend(await trace.with_interaction(record))
+        assert record == Interaction(inputs=3, outputs=4, metadata={})
+        record = await generator.asend(await trace.with_interaction(record))
+        assert record == Interaction(inputs=5, outputs=6, metadata={})
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(await trace.with_interaction(record))
+
+    # ========== Tests for different input types ==========
+
+    async def test_inputs_static_value(self):
+        """Test inputs as static value."""
+        interaction = Interact(inputs="hello", outputs="hi")
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.inputs == "hello"
+        assert record.outputs == "hi"
+
+    async def test_inputs_fn_without_params(self):
+        """Test inputs as function without parameters."""
+
+        def get_input() -> str:
+            return "hello"
+
+        interaction = Interact(inputs=get_input, outputs="hi")
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.inputs == "hello"
+
+    async def test_inputs_fn_without_params_no_type_hint(self):
+        """Test inputs as function without parameters and without type hints."""
+
+        def get_input():
+            return "hello"
+
+        interaction = Interact(inputs=get_input, outputs="hi")
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.inputs == "hello"
+
+    async def test_inputs_fn_with_trace_param(self):
+        """Test inputs as function with trace parameter."""
+
+        def get_input(trace: Trace[str, str]) -> str:
+            count = len(trace.interactions)
+            return f"message_{count}"
+
+        interaction = Interact(inputs=get_input, outputs="hi")
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.inputs == "message_0"
+
+    async def test_inputs_fn_with_trace_param_no_type_hint(self):
+        """Test that inputs function with trace parameter but no type hint works."""
+
+        def get_input(trace):
+            count = len(trace.interactions)
+            return f"message_{count}"
+
+        # Untyped parameters are now allowed and match any requirement
+        interaction = Interact(inputs=get_input, outputs="hi")
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.inputs == "message_0"
+
+    async def test_inputs_fn_with_provided_param_default(self):
+        """Test inputs as function with trace and provided parameter with default."""
+
+        def get_input(trace: Trace[str, str], provided: int = 42) -> str:
+            count = len(trace.interactions)
+            return f"message_{count}_{provided}"
+
+        interaction = Interact(inputs=get_input, outputs="hi")
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.inputs == "message_0_42"
+
+    async def test_inputs_fn_with_provided_param_default_no_type_hint(self):
+        """Test that inputs function with trace and provided parameter with default but no type hints works."""
+
+        def get_input(trace, provided=42):
+            count = len(trace.interactions)
+            return f"message_{count}_{provided}"
+
+        # Untyped parameters are now allowed and match any requirement
+        interaction = Interact(inputs=get_input, outputs="hi")
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.inputs == "message_0_42"
+
+    async def test_inputs_async_fn_without_params(self):
+        """Test inputs as async function without parameters."""
+
+        async def get_input() -> str:
+            return "hello"
+
+        interaction = Interact(inputs=get_input, outputs="hi")
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.inputs == "hello"
+
+    async def test_inputs_async_fn_with_trace_param(self):
+        """Test inputs as async function with trace parameter."""
+
+        async def get_input(trace: Trace[str, str]) -> str:
+            count = len(trace.interactions)
+            return f"message_{count}"
+
+        interaction = Interact(inputs=get_input, outputs="hi")
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.inputs == "message_0"
+
+    # ========== Tests for generator inputs ==========
+
+    async def test_inputs_sync_generator_no_params(self):
+        """Test inputs as sync generator function with no parameters."""
+
+        def inputs_generator() -> Generator[int, None, None]:
+            yield 1
+            yield 2
+            yield 3
+
+        interaction = Interact(
+            inputs=inputs_generator, outputs=lambda inputs: inputs * 2
+        )
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+
+        record = await anext(generator)
+        assert record.inputs == 1
+        assert record.outputs == 2
+
+        record = await generator.asend(
+            Trace(interactions=[*trace.interactions, record])
+        )
+        assert record.inputs == 2
+        assert record.outputs == 4
+
+        record = await generator.asend(
+            Trace(interactions=[*trace.interactions, record])
+        )
+        assert record.inputs == 3
+        assert record.outputs == 6
+
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(Trace(interactions=[*trace.interactions, record]))
+
+    async def test_inputs_async_generator_no_params(self):
+        """Test inputs as async generator function with no parameters."""
+
+        async def inputs_generator() -> AsyncGenerator[int, None]:
+            yield 1
+            yield 2
+            yield 3
+
+        interaction = Interact(
+            inputs=inputs_generator, outputs=lambda inputs: inputs * 2
+        )
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+
+        record = await anext(generator)
+        assert record.inputs == 1
+        assert record.outputs == 2
+
+        record = await generator.asend(
+            Trace(interactions=[*trace.interactions, record])
+        )
+        assert record.inputs == 2
+        assert record.outputs == 4
+
+        record = await generator.asend(
+            Trace(interactions=[*trace.interactions, record])
+        )
+        assert record.inputs == 3
+        assert record.outputs == 6
+
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(Trace(interactions=[*trace.interactions, record]))
+
+    async def test_inputs_sync_generator_with_trace_param(self):
+        """Test inputs as sync generator function with trace parameter."""
+
+        def inputs_generator(
+            trace: Trace[int, int],
+        ) -> Generator[int, Trace[int, int], None]:
+            count = len(trace.interactions)
+            trace = yield count + 1
+            trace = yield count + 2
+            trace = yield count + 3
+
+        interaction = Interact(
+            inputs=inputs_generator, outputs=lambda inputs: inputs * 2
+        )
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+
+        record = await anext(generator)
+        assert record.inputs == 1
+        assert record.outputs == 2
+
+        updated_trace = Trace(interactions=[*trace.interactions, record])
+        record = await generator.asend(updated_trace)
+        assert record.inputs == 2
+        assert record.outputs == 4
+
+        updated_trace = Trace(interactions=[*updated_trace.interactions, record])
+        record = await generator.asend(updated_trace)
+        assert record.inputs == 3
+        assert record.outputs == 6
+
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(
+                Trace(interactions=[*updated_trace.interactions, record])
+            )
+
+    async def test_inputs_async_generator_with_trace_param(self):
+        """Test inputs as async generator function with trace parameter."""
+
+        async def inputs_generator(
+            trace: Trace[int, int],
+        ) -> AsyncGenerator[int, Trace[int, int]]:
+            count = len(trace.interactions)
+            trace = yield count + 1
+            trace = yield count + 2
+            trace = yield count + 3
+
+        interaction = Interact(
+            inputs=inputs_generator, outputs=lambda inputs: inputs * 2
+        )
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+
+        record = await anext(generator)
+        assert record.inputs == 1
+        assert record.outputs == 2
+
+        updated_trace = Trace(interactions=[*trace.interactions, record])
+        record = await generator.asend(updated_trace)
+        assert record.inputs == 2
+        assert record.outputs == 4
+
+        updated_trace = Trace(interactions=[*updated_trace.interactions, record])
+        record = await generator.asend(updated_trace)
+        assert record.inputs == 3
+        assert record.outputs == 6
+
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(
+                Trace(interactions=[*updated_trace.interactions, record])
+            )
+
+    async def test_inputs_sync_generator_no_params_no_type_hint(self):
+        """Test inputs as sync generator function with no parameters and no type hints."""
+
+        def inputs_generator():
+            yield 1
+            yield 2
+
+        interaction = Interact(
+            inputs=inputs_generator, outputs=lambda inputs: inputs * 2
+        )
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+
+        record = await anext(generator)
+        assert record.inputs == 1
+        assert record.outputs == 2
+
+        record = await generator.asend(
+            Trace(interactions=[*trace.interactions, record])
+        )
+        assert record.inputs == 2
+        assert record.outputs == 4
+
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(Trace(interactions=[*trace.interactions, record]))
+
+    async def test_inputs_async_generator_no_params_no_type_hint(self):
+        """Test inputs as async generator function with no parameters and no type hints."""
+
+        async def inputs_generator():
+            yield 1
+            yield 2
+
+        interaction = Interact(
+            inputs=inputs_generator, outputs=lambda inputs: inputs * 2
+        )
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+
+        record = await anext(generator)
+        assert record.inputs == 1
+        assert record.outputs == 2
+
+        record = await generator.asend(
+            Trace(interactions=[*trace.interactions, record])
+        )
+        assert record.inputs == 2
+        assert record.outputs == 4
+
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(Trace(interactions=[*trace.interactions, record]))
+
+    async def test_inputs_sync_generator_with_trace_no_type_hint(self):
+        """Test inputs as sync generator function with trace parameter but no type hints."""
+
+        def inputs_generator(trace):
+            count = len(trace.interactions)
+            trace = yield count + 1
+            trace = yield count + 2
+
+        interaction = Interact(
+            inputs=inputs_generator, outputs=lambda inputs: inputs * 2
+        )
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+
+        record = await anext(generator)
+        assert record.inputs == 1
+        assert record.outputs == 2
+
+        updated_trace = Trace(interactions=[*trace.interactions, record])
+        record = await generator.asend(updated_trace)
+        assert record.inputs == 2
+        assert record.outputs == 4
+
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(
+                Trace(interactions=[*updated_trace.interactions, record])
+            )
+
+    async def test_inputs_async_generator_with_trace_no_type_hint(self):
+        """Test inputs as async generator function with trace parameter but no type hints."""
+
+        async def inputs_generator(trace):
+            count = len(trace.interactions)
+            trace = yield count + 1
+            trace = yield count + 2
+
+        interaction = Interact(
+            inputs=inputs_generator, outputs=lambda inputs: inputs * 2
+        )
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+
+        record = await anext(generator)
+        assert record.inputs == 1
+        assert record.outputs == 2
+
+        updated_trace = Trace(interactions=[*trace.interactions, record])
+        record = await generator.asend(updated_trace)
+        assert record.inputs == 2
+        assert record.outputs == 4
+
+        with pytest.raises(StopAsyncIteration):
+            await generator.asend(
+                Trace(interactions=[*updated_trace.interactions, record])
+            )
+
+    # ========== Tests for different output types ==========
+
+    async def test_outputs_static_value(self):
+        """Test outputs as static value."""
+        interaction = Interact(inputs="hello", outputs="hi")
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "hi"
+
+    async def test_outputs_fn_without_params(self):
+        """Test outputs as function without parameters."""
+
+        def get_output() -> str:
+            return "hi"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "hi"
+
+    async def test_outputs_fn_without_params_no_type_hint(self):
+        """Test outputs as function without parameters and without type hints."""
+
+        def get_output():
+            return "hi"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "hi"
+
+    async def test_outputs_fn_with_inputs_param(self):
+        """Test outputs as function with inputs parameter."""
+
+        def get_output(inputs: str) -> str:
+            return f"echo: {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "echo: hello"
+
+    async def test_outputs_fn_with_inputs_param_no_type_hint(self):
+        """Test outputs as function with inputs parameter but no type hint."""
+
+        def get_output(inputs):
+            return f"echo: {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "echo: hello"
+
+    async def test_outputs_fn_with_inputs_and_trace_params(self):
+        """Test outputs as function with inputs and trace parameters."""
+
+        def get_output(inputs: str, trace: Trace[str, str]) -> str:
+            count = len(trace.interactions)
+            return f"echo_{count}: {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.outputs == "echo_0: hello"
+
+    async def test_outputs_fn_with_keyword_only_inputs_param(self):
+        """Test outputs as function with keyword-only inputs parameter."""
+
+        def get_output(*, inputs: str) -> str:
+            return f"echo: {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "echo: hello"
+
+    async def test_outputs_fn_with_positional_only_inputs_param(self):
+        """Test outputs as function with positional-only inputs parameter."""
+
+        def get_output(inputs: str, /) -> str:
+            return f"echo: {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "echo: hello"
+
+    async def test_outputs_fn_with_positional_only_inputs_and_trace_params(self):
+        """Test outputs as function with positional-only inputs and trace parameters."""
+
+        def get_output(inputs: str, trace: Trace[str, str], /) -> str:
+            return f"[{len(trace.interactions)}] {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "[0] hello"
+
+    async def test_outputs_fn_with_inputs_and_trace_params_no_type_hint(self):
+        """Test outputs as function with inputs and trace parameters but no type hints."""
+
+        def get_output(inputs, trace):
+            count = len(trace.interactions)
+            return f"echo_{count}: {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.outputs == "echo_0: hello"
+
+    async def test_outputs_fn_with_provided_param_default(self):
+        """Test outputs as function with inputs, trace, and provided parameter with default."""
+
+        def get_output(inputs: str, trace: Trace[str, str], multiplier: int = 2) -> str:
+            count = len(trace.interactions)
+            return f"echo_{count * multiplier}: {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.outputs == "echo_0: hello"
+
+    async def test_outputs_fn_with_provided_param_default_no_type_hint(self):
+        """Test outputs as function with provided parameter with default, no type hints."""
+
+        def get_output(inputs, trace, multiplier=2):
+            count = len(trace.interactions)
+            return f"echo_{count * multiplier}: {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.outputs == "echo_0: hello"
+
+    async def test_outputs_async_fn_with_inputs_param(self):
+        """Test outputs as async function with inputs parameter."""
+
+        async def get_output(inputs: str) -> str:
+            return f"echo: {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "echo: hello"
+
+    async def test_outputs_async_fn_with_inputs_and_trace_params(self):
+        """Test outputs as async function with inputs and trace parameters."""
+
+        async def get_output(inputs: str, trace: Trace[str, str]) -> str:
+            count = len(trace.interactions)
+            return f"echo_{count}: {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.outputs == "echo_0: hello"
+
+    # ========== Tests for validation errors ==========
+
+    async def test_inputs_fn_with_unmapped_required_param_raises_error(self):
+        """Test that inputs function with unmapped required parameter raises validation error."""
+
+        def get_input(trace: Trace[str, str], unmapped: str) -> str:
+            return f"message_{unmapped}"
+
+        # TypeError is raised directly (not wrapped because code only catches ValueError)
+        with pytest.raises(
+            TypeError,
+            match="Parameter 'unmapped' is required but not in the injection requirements",
+        ):
+            Interact(inputs=get_input, outputs="hi")
+
+    async def test_outputs_fn_with_unmapped_required_param_raises_validation_error(
+        self,
+    ):
+        """Test that outputs function with unmapped required parameter raises at validation time.
+
+        Injection only passes params whose names exactly match; required params
+        not in the injectable set cause TypeError when building Interact.
+        """
+
+        def get_output(inputs: str, trace: Trace[str, str], unmapped: str) -> str:
+            return f"echo_{unmapped}: {inputs}"
+
+        with pytest.raises(
+            TypeError,
+            match="Parameter 'unmapped' is required but not in the injection requirements",
+        ):
+            Interact(inputs="hello", outputs=get_output)
+
+    async def test_outputs_fn_with_renamed_inputs_param_raises_validation_error(self):
+        """Test that outputs function requiring a non-injectable param name fails validation."""
+
+        def get_output(x: str) -> str:
+            return f"echo: {x}"
+
+        with pytest.raises(
+            TypeError,
+            match="Parameter 'x' is required but not in the injection requirements",
+        ):
+            Interact(inputs="hello", outputs=get_output)
+
+    async def test_outputs_fn_with_keyword_only_unmapped_required_param_raises_validation_error(
+        self,
+    ):
+        """Test that keyword-only required params not in injectable set fail validation."""
+
+        def get_output(*, x: str) -> str:
+            return f"echo: {x}"
+
+        with pytest.raises(
+            TypeError,
+            match="Parameter 'x' is required but not in the injection requirements",
+        ):
+            Interact(inputs="hello", outputs=get_output)
+
+    async def test_inputs_fn_with_keyword_only_trace_param(self):
+        """Test inputs as function with keyword-only trace parameter."""
+
+        def get_input(*, trace: Trace[str, str]) -> str:
+            return f"message_{len(trace.interactions)}"
+
+        interaction = Interact(inputs=get_input, outputs="hi")
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.inputs == "message_0"
+
+    async def test_inputs_fn_with_keyword_only_unmapped_required_param_raises_error(
+        self,
+    ):
+        """Test that keyword-only required params not in injectable set fail validation."""
+
+        def get_input(*, trace: Trace[str, str], unmapped: str) -> str:
+            return f"message_{unmapped}_{len(trace.interactions)}"
+
+        with pytest.raises(
+            TypeError,
+            match="Parameter 'unmapped' is required but not in the injection requirements",
+        ):
+            Interact(inputs=get_input, outputs="hi")
+
+    async def test_inputs_fn_with_var_positional_works(self):
+        """Test that inputs function with *args works (var args are skipped)."""
+
+        def get_input(*args) -> str:
+            return "hello"
+
+        # *args are skipped in parameter injection, so this should work
+        interaction = Interact(inputs=get_input, outputs="hi")
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.inputs == "hello"
+
+    async def test_outputs_fn_with_var_positional_works(self):
+        """Test that outputs function with *args works (var args are skipped)."""
+
+        def get_output(*args) -> str:
+            return "hi"
+
+        # *args are skipped in parameter injection, so this should work
+        interaction = Interact(inputs="hello", outputs=get_output)
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "hi"
+
+    async def test_inputs_fn_with_var_keyword_works(self):
+        """Test that inputs function with **kwargs works (var kwargs are skipped)."""
+
+        def get_input(**kwargs) -> str:
+            return "hello"
+
+        # **kwargs are skipped in parameter injection, so this should work
+        interaction = Interact(inputs=get_input, outputs="hi")
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.inputs == "hello"
+
+    async def test_outputs_fn_with_var_keyword_works(self):
+        """Test that outputs function with **kwargs works (var kwargs are skipped)."""
+
+        def get_output(**kwargs) -> str:
+            return "hi"
+
+        # **kwargs are skipped in parameter injection, so this should work
+        interaction = Interact(inputs="hello", outputs=get_output)
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "hi"
+
+    async def test_inputs_fn_with_positional_only_trace_param(self):
+        """Test inputs as function with positional-only trace parameter."""
+
+        def get_input(trace: Trace[str, str], /) -> str:
+            return f"message_{len(trace.interactions)}"
+
+        interaction = Interact(inputs=get_input, outputs="hi")
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.inputs == "message_0"
+
+    async def test_inputs_fn_with_optional_trace_param_receives_trace(self):
+        """Test that optional trace param still receives injected trace."""
+
+        def get_input(trace: Trace[str, str] | None = None) -> str:
+            assert trace is not None
+            return f"message_{len(trace.interactions)}"
+
+        interaction = Interact(inputs=get_input, outputs="hi")
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.inputs == "message_0"
+
+    async def test_outputs_fn_with_optional_trace_param_receives_trace(self):
+        """Test that optional trace param still receives injected trace."""
+
+        def get_output(inputs: str, trace: Trace[str, str] | None = None) -> str:
+            assert trace is not None
+            return f"[{len(trace.interactions)}] {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        generator = interaction.generate(Trace(interactions=[]))
+        record = await anext(generator)
+        assert record.outputs == "[0] hello"
+
+    # ========== Combined tests ==========
+
+    async def test_combined_static_inputs_fn_outputs_with_trace(self):
+        """Test static inputs with function outputs that use trace."""
+
+        def get_output(inputs: str, trace: Trace[str, str]) -> str:
+            count = len(trace.interactions)
+            return f"[{count}] {inputs}"
+
+        interaction = Interact(inputs="hello", outputs=get_output)
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.inputs == "hello"
+        assert record.outputs == "[0] hello"
+
+    async def test_combined_fn_inputs_with_trace_static_outputs(self):
+        """Test function inputs with trace and static outputs."""
+
+        def get_input(trace: Trace[str, str]) -> str:
+            count = len(trace.interactions)
+            return f"message_{count}"
+
+        interaction = Interact(inputs=get_input, outputs="hi")
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.inputs == "message_0"
+        assert record.outputs == "hi"
+
+    async def test_combined_fn_inputs_with_provided_fn_outputs_with_provided(self):
+        """Test function inputs with provided param and function outputs with provided param."""
+
+        def get_input(trace: Trace[str, str], offset: int = 10) -> str:
+            count = len(trace.interactions)
+            return f"message_{count + offset}"
+
+        def get_output(inputs: str, trace: Trace[str, str], multiplier: int = 3) -> str:
+            count = len(trace.interactions)
+            return f"[{count * multiplier}] {inputs}"
+
+        interaction = Interact(inputs=get_input, outputs=get_output)
+        trace = Trace(interactions=[])
+        generator = interaction.generate(trace)
+        record = await anext(generator)
+        assert record.inputs == "message_10"
+        assert record.outputs == "[0] message_10"
+
+    # ========== Tests for serialization ==========
+
+    def test_interaction_serialization_with_user_simulator_inputs(self):
+        """Test that Interaction with UserSimulator inputs and static outputs can be serialized and deserialized."""
+        user_simulator = UserSimulator(persona="Ask about the weather", max_steps=2)
+        interaction = Interact(
+            inputs=user_simulator, outputs="This is a static response"
+        )
+
+        # Serialize to JSON
+        json_str = interaction.model_dump_json()
+
+        # Deserialize from JSON
+        restored_spec = InteractionSpec.model_validate_json(json_str)
+
+        # Verify it's an Interaction
+        assert isinstance(restored_spec, Interact)
+
+        # Verify the UserSimulator was restored correctly
+        assert isinstance(restored_spec.inputs, UserSimulator)
+        assert restored_spec.inputs.persona == "Ask about the weather"
+        assert restored_spec.inputs.max_steps == 2
+
+        # Verify the static output was preserved
+        assert restored_spec.outputs == "This is a static response"

@@ -1,0 +1,42 @@
+// =============================================================================
+// LINK STYLES — Global and content links
+// =============================================================================
+
+// Link styles
+a {
+  color: $link-color;
+  text-decoration: none;
+
+  // Long URLs (bibliography hashes like
+  // `https://proceedings.neurips.cc/paper/2012/hash/6aca97005c68f1206823815f66102863-Abstract.html`,
+  // arXiv ids, DOI suffixes) are single unbreakable tokens. Inside narrow
+  // containers — the right-side margin / column-margin notes, footnote
+  // lists, callouts — they push the line box past the column width, which
+  // cascades into page-level horizontal overflow. `overflow-wrap: anywhere`
+  // (preferred over `break-word`: `anywhere` also shrinks min-content size,
+  // so the containing block can actually narrow on flex/grid parents). Safe
+  // global default: regular prose still breaks at word boundaries first and
+  // only falls back to mid-token splits when nothing else fits.
+  overflow-wrap: anywhere;
+
+  &:hover {
+    color: $link-hover-color;
+    text-decoration: underline;
+  }
+
+  &:visited {
+    color: darken($accent, 10%);
+  }
+}
+
+// Content area link styles - balanced with navigation
+.content a {
+  color: $link-color;
+  font-weight: 400; // Normal weight - content should be primary focus
+
+  &:hover {
+    color: $link-hover-color;
+    font-weight: 500; // Medium weight on hover
+    text-decoration: underline;
+  }
+}

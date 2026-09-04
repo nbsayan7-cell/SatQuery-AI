@@ -1,0 +1,230 @@
+import { THREAD_RENAME_EVENT } from "@/components/Sidebar/ActiveWorkspaces/ThreadContainer";
+import { emitAssistantMessageCompleteEvent } from "@/components/contexts/TTSProvider";
+import { getAgentSessionActive } from "@/utils/chat/agent";
+export const ABORT_STREAM_EVENT = "abort-chat-stream";
+
+// For handling of chat responses in the frontend by their various types.
+export default function handleChat(
+  chatResult,
+  setLoadingResponse,
+  setChatHistory,
+  remHistory,
+  _chatHistory,
+  setWebsocket
+) {
+  const {
+    uuid,
+    textResponse,
+    type,
+    sources = [],
+    error,
+    close,
+    animate = false,
+    chatId = null,
+    action = null,
+    metrics = {},
+    routedTo = null,
+    outputs = null,
+  } = chatResult;
+
+  if (type === "modelRouteNotification") {
+    _chatHistory.push({
+      type: "modelRouteNotification",
+      uuid,
+      routedTo,
+      role: "assistant",
+    });
+    setChatHistory([..._chatHistory]);
+    return;
+  }
+
+  if (type === "imageGenerationPending") {
+    const pendingMsg = {
+      type: "imageGenerationPending",
+      uuid,
+      content: "",
+      role: "assistant",
+      sources: [],
+      closed: false,
+      error: null,
+      animate: false,
+      pending: true,
+    };
+    setChatHistory([...remHistory, pendingMsg]);
+    _chatHistory.push(pendingMsg);
+    return;
+  }
+
+  if (type === "abort" || type === "statusResponse") {
+    // Once an agent session is live, the websocket handlers in ChatContainer
+    // own the loading state - the statusResponse that closes the HTTP stream
+    // ("Swapping over to agent chat") must not hide the stop button.
+    if (type === "abort" || !getAgentSessionActive()) setLoadingResponse(false);
+
+    // The "@agent: Swapping over to agent chat..." handoff notice is stream
+    // plumbing, not conversation. It is never persisted, so it already
+    // vanishes on reload - keep it out of the live history too so it does not
+    // seed the agent's status bubble. History is left untouched so the pending
+    // placeholder keeps the loading dots up until the agent's first websocket
+    // event, which drops content-less messages itself.
+    if (type === "statusResponse" && textResponse?.startsWith("@agent:"))
+      return;
+
+    setChatHistory([
+      ...remHistory,
+      {
+        type,
+        uuid,
+        content: textResponse,
+        role: "assistant",
+        sources,
+        closed: true,
+        error,
+        animate,
+        pending: false,
+        metrics,
+      },
+    ]);
+    _chatHistory.push({
+      type,
+      uuid,
+      content: textResponse,
+      role: "assistant",
+      sources,
+      closed: true,
+      error,
+      animate,
+      pending: false,
+      metrics,
+    });
+  } else if (type === "textResponse") {
+    setLoadingResponse(false);
+    setChatHistory([
+      ...remHistory,
+      {
+        uuid,
+        content: textResponse,
+        role: "assistant",
+        sources,
+        closed: close,
+        error,
+        animate: !close,
+        pending: false,
+        chatId,
+        metrics,
+        ...(outputs ? { outputs } : {}),
+      },
+    ]);
+    _chatHistory.push({
+      uuid,
+      content: textResponse,
+      role: "assistant",
+      sources,
+      closed: close,
+      error,
+      animate: !close,
+      pending: false,
+      chatId,
+      metrics,
+      ...(outputs ? { outputs } : {}),
+    });
+    emitAssistantMessageCompleteEvent(chatId);
+  } else if (
+    type === "textResponseChunk" ||
+    type === "finalizeResponseStream"
+  ) {
+    const chatIdx = _chatHistory.findIndex((chat) => chat.uuid === uuid);
+    if (chatIdx !== -1) {
+      const existingHistory = { ..._chatHistory[chatIdx] };
+      let updatedHistory;
+
+      // If the response is finalized, we can set the loading state to false.
+      // and append the metrics to the history.
+      if (type === "finalizeResponseStream") {
+        updatedHistory = {
+          ...existingHistory,
+          closed: close,
+          animate: !close,
+          pending: false,
+          chatId,
+          metrics,
+        };
+
+        _chatHistory[chatIdx - 1] = { ..._chatHistory[chatIdx - 1], chatId }; // update prompt with chatID
+
+        emitAssistantMessageCompleteEvent(chatId);
+        setLoadingResponse(false);
+      } else {
+        updatedHistory = {
+          ...existingHistory,
+          content: existingHistory.content + textResponse,
+          ...(sources && sources.length > 0 ? { sources } : {}),
+          error,
+          closed: close,
+          animate: !close,
+          pending: false,
+          chatId,
+          metrics,
+        };
+      }
+      _chatHistory[chatIdx] = updatedHistory;
+    } else {
+      _chatHistory.push({
+        uuid,
+        sources,
+        error,
+        content: textResponse,
+        role: "assistant",
+        closed: close,
+        animate: !close,
+        pending: false,
+        chatId,
+        metrics,
+      });
+    }
+    setChatHistory([..._chatHistory]);
+  } else if (type === "agentInitWebsocketConnection") {
+    setWebsocket(chatResult.websocketUUID);
+  } else if (type === "stopGeneration") {
+    const chatIdx = _chatHistory.length - 1;
+    const existingHistory = { ..._chatHistory[chatIdx] };
+    const updatedHistory = {
+      ...existingHistory,
+      sources: [],
+      closed: true,
+      error: null,
+      animate: false,
+      pending: false,
+      metrics,
+    };
+    _chatHistory[chatIdx] = updatedHistory;
+
+    setChatHistory([..._chatHistory]);
+    setLoadingResponse(false);
+  }
+
+  // Action Handling via special 'action' attribute on response.
+  if (action === "reset_chat") setChatHistory([]);
+
+  // If thread was updated automatically based on chat prompt
+  // then we can handle the updating of the thread here.
+  if (action === "rename_thread") {
+    if (!!chatResult?.thread?.slug && chatResult.thread.name) {
+      window.dispatchEvent(
+        new CustomEvent(THREAD_RENAME_EVENT, {
+          detail: {
+            threadSlug: chatResult.thread.slug,
+            newName: chatResult.thread.name,
+          },
+        })
+      );
+    }
+  }
+}
+
+export function chatQueryRefusalResponse(workspace) {
+  return (
+    workspace?.queryRefusalResponse ??
+    "There is no relevant information in this workspace to answer your query."
+  );
+}

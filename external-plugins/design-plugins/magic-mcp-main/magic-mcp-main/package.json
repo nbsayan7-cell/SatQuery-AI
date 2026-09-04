@@ -1,0 +1,44 @@
+{
+  "name": "@21st-dev/magic",
+  "version": "0.2.2",
+  "type": "module",
+  "description": "Magic MCP is now the 21st MCP. This package is a compatibility proxy kept for old configs - new setups should use `npx @21st-dev/cli@latest init`. Setup: https://21st.dev/mcp",
+  "homepage": "https://21st.dev/mcp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/21st-dev/magic-mcp.git"
+  },
+  "bin": {
+    "magic": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "UI",
+    "frontend",
+    "21st.dev",
+    "21st",
+    "magic",
+    "magic-mcp"
+  ],
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc && shx chmod +x dist/*.js",
+    "prepublishOnly": "npm run build",
+    "start": "node dist/index.js"
+  },
+  "author": "serafim@21st.dev",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "shx": "^0.3.4",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

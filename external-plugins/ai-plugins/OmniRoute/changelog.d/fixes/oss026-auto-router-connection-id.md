@@ -1,0 +1,1 @@
+- Fixed auto-router strategies preserving the selected connection through ranking and dispatch when multiple connections share the same provider and model.

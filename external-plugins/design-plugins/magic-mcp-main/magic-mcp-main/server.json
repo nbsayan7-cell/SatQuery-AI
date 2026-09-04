@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "dev.21st/magic",
+  "title": "21st.dev Magic",
+  "description": "Search 10,000+ React/Tailwind components, install with deps, and generate new UI with AI.",
+  "websiteUrl": "https://21st.dev/mcp",
+  "repository": {
+    "url": "https://github.com/21st-dev/magic-mcp",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://21st.dev/api/mcp",
+      "headers": [
+        {
+          "name": "x-api-key",
+          "description": "21st.dev API key — free and instant at https://21st.dev/mcp",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

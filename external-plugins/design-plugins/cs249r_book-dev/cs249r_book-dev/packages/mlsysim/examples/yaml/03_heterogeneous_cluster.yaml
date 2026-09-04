@@ -1,0 +1,17 @@
+version: "1.0"
+name: "Multi-node Lab Cluster"
+
+workload:
+  name: "Llama3_8B"
+  batch_size: 1024
+  seq_len: 4096
+
+hardware:
+  name: "H100"
+  accelerators: 16
+  precision: "fp16"
+  efficiency: 0.45
+
+ops:
+  region: "US_Avg"
+  duration_days: 14.0

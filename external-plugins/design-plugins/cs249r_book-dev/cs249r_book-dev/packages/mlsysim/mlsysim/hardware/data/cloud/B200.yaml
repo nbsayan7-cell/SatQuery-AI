@@ -1,0 +1,31 @@
+__key__: B200
+name: NVIDIA B200
+release_year: 2024
+compute:
+  peak_flops: 2250.0 TFLOPs / s
+  precision_flops:
+    fp8: 4500.0 TFLOPs / s
+    fp4: 9000.0 TFLOPs / s
+    int4: 9000 TOPS
+memory:
+  capacity: 180 GiB
+  bandwidth: 8.0 TB / s
+interconnect:
+  name: PCIe Gen5 x16
+  bandwidth: 64.0 GB / s
+nvlink:
+  name: NVLink 5.0
+  direction: bidirectional_total  # datasheet quotes send+receive summed
+  bandwidth: 1800.0 GB / s
+  latency: '@tech:Interconnect.NVLink.latency'
+tdp: 1000 W
+unit_cost: 40000 dollar
+dispatch_tax: 0.008 ms
+metadata:
+  provenance:
+    kind: datasheet
+    ref: NVIDIA HGX B200 and DGX B200 product documentation (dense per-GPU numbers)
+    url: https://www.nvidia.com/en-us/data-center/hgx/
+    verified: '2026-08-12'
+    notes: HGX B200 specifications give 180 GB HBM3e and up to 8 TB/s per GPU; the DGX B200 user guide gives 1,000 W maximum power per GPU.
+    id: prov:nvidia-b200-datasheet

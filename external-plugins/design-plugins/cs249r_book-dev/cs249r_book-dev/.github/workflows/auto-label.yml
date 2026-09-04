@@ -1,0 +1,325 @@
+name: '🔧 Infra · 🏷️ Auto Label'
+
+# =============================================================================
+# 🏷️ Auto Label — Hybrid rule-based + LLM labeling for issues and PRs
+# =============================================================================
+#
+# Area labels are assigned deterministically from PR file paths; for issues,
+# area is LLM-classified. Type labels are always LLM-classified. Label lists
+# are fetched from GitHub at runtime (no static lists).
+#
+# Flow:
+#   1. DETAILS   — Fetch issue/PR title, body, and metadata
+#   2. AREA      — Deterministic file-path matching for PRs (LLM fallback)
+#   3. CLASSIFY  — LLM selects type label and optional other labels
+#   4. APPLY     — Validate against repo labels and apply via API
+#
+# Triggers:
+#   - issues: Opened
+#   - pull_request_target: Opened
+#   - workflow_dispatch: Manual with issue/PR number
+#
+# Related:
+#   - all-contributors-add.yml — Also uses LLM for issue/PR analysis
+#
+# =============================================================================
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue or PR number to label'
+        required: true
+        type: number
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  auto-label:
+    name: Auto Label
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Get issue/PR details
+        id: get-details
+        uses: actions/github-script@v9
+        with:
+          script: |
+            let number, title, body, isPR = false;
+
+            if (context.eventName === 'workflow_dispatch') {
+              number = ${{ inputs.issue_number || 0 }};
+              if (!number) {
+                core.setFailed('No issue_number provided for manual trigger');
+                return;
+              }
+              try {
+                const { data: issue } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: number
+                });
+                title = issue.title;
+                body = issue.body || '';
+                isPR = !!issue.pull_request;
+                console.log(`Manual trigger for #${number}: ${title} (isPR: ${isPR})`);
+              } catch (e) {
+                core.setFailed(`Could not fetch issue/PR #${number}: ${e.message}`);
+                return;
+              }
+            } else if (context.eventName === 'issues') {
+              number = context.payload.issue.number;
+              title = context.payload.issue.title;
+              body = context.payload.issue.body || '';
+              isPR = false;
+            } else {
+              number = context.payload.pull_request.number;
+              title = context.payload.pull_request.title;
+              body = context.payload.pull_request.body || '';
+              isPR = true;
+            }
+
+            core.setOutput('number', number);
+            core.setOutput('title', title);
+            core.setOutput('body', body);
+            core.setOutput('is_pr', isPR.toString());
+
+      # =====================================================================
+      # AREA LABEL — Deterministic for PRs (file-path rules)
+      # =====================================================================
+      - name: Determine area label from changed files (PRs only)
+        if: steps.get-details.outputs.is_pr == 'true'
+        id: area-from-files
+        uses: actions/github-script@v9
+        env:
+          ISSUE_NUMBER: ${{ steps.get-details.outputs.number }}
+        with:
+          script: |
+            const number = parseInt(process.env.ISSUE_NUMBER, 10);
+
+            // Fetch changed files
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: number,
+              per_page: 100
+            });
+
+            const paths = files.map(f => f.filename);
+            console.log(`Changed files (${paths.length}):`);
+            paths.forEach(p => console.log(`  ${p}`));
+
+            // ── Path-prefix → area label mapping ──
+            // Order matters: more specific prefixes first
+            const rules = [
+              { prefix: '.github/',   label: 'area: tools' },
+              { prefix: 'tools/',     label: 'area: tools' },
+              { prefix: 'book/',      label: 'area: book' },
+              { prefix: 'tinytorch/', label: 'area: tinytorch' },
+              { prefix: 'kits/',      label: 'area: kits' },
+              { prefix: 'labs/',      label: 'area: labs' },
+              { prefix: 'socratiq/',  label: 'area: socratiq' },
+              { prefix: 'site/',      label: 'area: website' },
+              { prefix: 'website/',   label: 'area: website' },
+              { prefix: 'mlsysim/',   label: 'area: mlsysim' },
+              { prefix: 'physical/',  label: 'area: physical' },
+              { prefix: 'interviews/', label: 'area: staffml' },
+            ];
+
+            // Count hits per area
+            const areaCounts = {};
+            for (const filePath of paths) {
+              for (const rule of rules) {
+                if (filePath.startsWith(rule.prefix)) {
+                  areaCounts[rule.label] = (areaCounts[rule.label] || 0) + 1;
+                  break; // first matching rule wins per file
+                }
+              }
+            }
+
+            // Pick area with most file hits (majority wins)
+            let areaLabel = '';
+            let maxCount = 0;
+            for (const [label, count] of Object.entries(areaCounts)) {
+              if (count > maxCount) {
+                maxCount = count;
+                areaLabel = label;
+              }
+            }
+
+            if (areaLabel) {
+              console.log(`Deterministic area: "${areaLabel}" (${maxCount}/${paths.length} files)`);
+            } else {
+              console.log('No area matched from file paths — LLM will decide');
+            }
+
+            core.setOutput('area_label', areaLabel);
+            core.setOutput('matched', areaLabel ? 'true' : 'false');
+
+      # =====================================================================
+      # FETCH LABELS — For LLM-based type classification
+      # =====================================================================
+      - name: Fetch labels from GitHub
+        id: fetch-labels
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { data: labels } = await github.rest.issues.listLabelsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+
+            console.log(`Found ${labels.length} labels in repository`);
+
+            const grouped = { area: [], type: [], other: [] };
+
+            for (const label of labels) {
+              const name = label.name;
+              const desc = label.description || '';
+              if (name.startsWith('area:')) grouped.area.push({ name, description: desc });
+              else if (name.startsWith('type:')) grouped.type.push({ name, description: desc });
+              else if (!name.startsWith('format:')) grouped.other.push({ name, description: desc });
+            }
+
+            const formatGroup = (items) => items.map(l => `${l.name} — ${l.description}`).join('\n');
+
+            core.setOutput('area_labels', formatGroup(grouped.area));
+            core.setOutput('type_labels', formatGroup(grouped.type));
+            core.setOutput('other_labels', formatGroup(grouped.other));
+            core.setOutput('all_labels_json', JSON.stringify(labels.map(l => l.name)));
+            core.setOutput('default_area', grouped.area[0]?.name || '');
+            core.setOutput('default_type', grouped.type[0]?.name || '');
+
+      # =====================================================================
+      # LLM ANALYSIS — Type label (+ area fallback for issues)
+      # =====================================================================
+      - name: Analyze with LLM
+        uses: ai-action/ollama-action@v2
+        id: llm
+        with:
+          model: llama3.1:8b
+          prompt: |
+            You are a GitHub issue/PR labeler. Analyze this and select appropriate labels.
+
+            TITLE: ${{ steps.get-details.outputs.title }}
+
+            BODY: ${{ steps.get-details.outputs.body }}
+
+            AVAILABLE TYPE LABELS (pick exactly ONE — what kind of change is this):
+            ${{ steps.fetch-labels.outputs.type_labels }}
+
+            AVAILABLE AREA LABELS (pick exactly ONE — only if area is NOT already determined):
+            ${{ steps.fetch-labels.outputs.area_labels }}
+
+            AREA ALREADY DETERMINED: ${{ steps.area-from-files.outputs.area_label || 'NOT SET — you must pick one' }}
+
+            OTHER LABELS (pick any that clearly apply, or none):
+            ${{ steps.fetch-labels.outputs.other_labels }}
+
+            Instructions:
+            - Pick ONE type label based on intent (bug fix, new feature, question, etc.)
+            - If AREA ALREADY DETERMINED shows a label, use exactly that for area
+            - If AREA ALREADY DETERMINED says "NOT SET", pick ONE area label
+            - Only add other labels if they clearly and obviously apply
+            - If unsure about type, use "${{ steps.fetch-labels.outputs.default_type }}"
+
+            Return ONLY a JSON object (no other text):
+            {"area": "area: book", "type": "type: bug", "other": []}
+
+      # =====================================================================
+      # APPLY LABELS
+      # =====================================================================
+      - name: Parse and apply labels
+        uses: actions/github-script@v9
+        env:
+          LLM_RESPONSE: ${{ steps.llm.outputs.response }}
+          ALL_LABELS_JSON: ${{ steps.fetch-labels.outputs.all_labels_json }}
+          DEFAULT_AREA: ${{ steps.fetch-labels.outputs.default_area }}
+          DEFAULT_TYPE: ${{ steps.fetch-labels.outputs.default_type }}
+          ISSUE_NUMBER: ${{ steps.get-details.outputs.number }}
+          DETERMINISTIC_AREA: ${{ steps.area-from-files.outputs.area_label }}
+        with:
+          script: |
+            const response = process.env.LLM_RESPONSE || '';
+            const deterministicArea = process.env.DETERMINISTIC_AREA || '';
+            const allValidLabels = JSON.parse(process.env.ALL_LABELS_JSON || '[]');
+            const defaultArea = process.env.DEFAULT_AREA || '';
+            const defaultType = process.env.DEFAULT_TYPE || '';
+
+            console.log('LLM response:', response);
+            console.log('Deterministic area:', deterministicArea || '(none)');
+
+            const normalizeLabel = (label) => {
+              if (!label) return label;
+              return label.replace(/^(area|type|format):(?! )/, '$1: ');
+            };
+
+            // Parse LLM response
+            let result = { area: defaultArea, type: defaultType, other: [] };
+            try {
+              const jsonMatch = response.match(/\{[\s\S]*?\}/);
+              if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (parsed.area) result.area = normalizeLabel(parsed.area);
+                if (parsed.type) result.type = normalizeLabel(parsed.type);
+                if (parsed.other) result.other = parsed.other.map(normalizeLabel);
+              }
+            } catch (e) {
+              console.log('Failed to parse LLM JSON, using defaults:', e.message);
+            }
+
+            // ── Build final label set ──
+            const labels = [];
+
+            // Area: deterministic wins over LLM
+            const areaLabel = deterministicArea || result.area;
+            if (allValidLabels.includes(areaLabel)) {
+              labels.push(areaLabel);
+              console.log(`Area label: "${areaLabel}" (${deterministicArea ? 'deterministic' : 'LLM'})`);
+            } else if (defaultArea) {
+              labels.push(defaultArea);
+              console.log(`Area fallback to default: "${defaultArea}"`);
+            }
+
+            // Type: always from LLM
+            if (allValidLabels.includes(result.type)) {
+              labels.push(result.type);
+            } else if (defaultType) {
+              console.log(`Invalid type "${result.type}", using default "${defaultType}"`);
+              labels.push(defaultType);
+            }
+
+            // Other labels
+            if (Array.isArray(result.other)) {
+              for (const label of result.other) {
+                if (allValidLabels.includes(label)) {
+                  labels.push(label);
+                } else {
+                  console.log(`Ignoring invalid label: "${label}"`);
+                }
+              }
+            }
+
+            // Apply
+            const number = parseInt(process.env.ISSUE_NUMBER, 10);
+            if (labels.length > 0) {
+              console.log(`Applying to #${number}: ${labels.join(', ')}`);
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: number,
+                labels: labels
+              });
+            } else {
+              console.log('No valid labels to apply');
+            }

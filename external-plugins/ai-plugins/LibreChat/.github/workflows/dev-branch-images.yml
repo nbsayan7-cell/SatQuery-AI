@@ -1,0 +1,48 @@
+name: Docker Dev Branch Images Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+    paths:
+      - 'api/**'
+      - 'client/**'
+      - 'config/**'
+      - 'skill/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'Dockerfile'
+      - 'Dockerfile.multi'
+      - '.dockerignore'
+      - '!**.md'
+      # Deployment skills are Markdown the image ships and reads at runtime
+      # (skill/<name>/SKILL.md plus md resources); re-include them after the
+      # !**.md exclusion (later patterns win), keeping the top-level README
+      # documentation-only.
+      - 'skill/**/*.md'
+      - '!skill/README.md'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      images: >-
+        [{"target":"api-build","file":"Dockerfile.multi","image_name":"lc-dev-api"},
+         {"target":"node","file":"Dockerfile","image_name":"lc-dev"}]
+      tag_suffixes: |
+        ${{ github.sha }}
+        latest
+      build_branch: ${{ github.ref_name }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

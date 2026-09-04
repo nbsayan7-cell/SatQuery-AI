@@ -1,0 +1,172 @@
+name: '📬 Newsletter · 🔄 Sync from Buttondown'
+
+# =============================================================================
+# Newsletter — Sync Buttondown content into dev + main
+# =============================================================================
+#
+# Daily content-only sync. Pulls published emails from Buttondown, commits
+# them to dev (so site-preview-dev picks them up), cherry-picks the same
+# commit onto main (the stable release branch), and dispatches
+# site-publish-live so the post lands on mlsysbook.ai.
+#
+# Why both branches:
+#   - dev is the integration trunk; pushing there auto-triggers
+#     site-preview-dev.yml so the dev preview gets the new post.
+#   - main is the stable release branch from which gh-pages is published.
+#     Newsletter content auto-promotes to main because it's contained to
+#     site/newsletter/posts/ and can't conflict with anything else.
+#
+# Why we dispatch site-publish-live instead of building here:
+#   - Single deploy path. Only site-publish-live writes to gh-pages, so the
+#     hashed bootstrap CSS in site_libs/ stays in sync with the unified
+#     site's about/community HTML by construction.
+#   - Past bug: this workflow used to do its own partial deploy of
+#     newsletter + site_libs and corrupted /site_libs/ for the about and
+#     community pages, because their HTML still referenced the previously
+#     deployed bootstrap-{HASH}.css.
+#
+# Triggers:
+#   - Schedule: Daily at 6 AM UTC (1 AM ET)
+#   - Manual:   workflow_dispatch
+#
+# Secrets: BUTTONDOWN_API_KEY, GITHUB_TOKEN
+#
+# Related:
+#   - site/newsletter/cli/  — news CLI (pull subcommand powers this)
+#   - site-publish-live.yml — full unified-site deploy from main
+#   - site-preview-dev.yml  — auto-triggered by our push to dev
+# =============================================================================
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 6am UTC (1am ET)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: write  # required to dispatch site-publish-live via `gh workflow run`
+
+concurrency:
+  group: newsletter-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: '📬 Sync Buttondown → dev + main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout dev (full history for cherry-pick)
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ vars.PYTHON_VERSION || '3.12' }}
+
+      - name: 📦 Install news CLI
+        run: pip install -r site/newsletter/requirements.txt
+
+      - name: 📬 Pull from Buttondown
+        env:
+          BUTTONDOWN_API_KEY: ${{ secrets.BUTTONDOWN_API_KEY }}
+        run: python3 site/newsletter/bin/news pull
+
+      - name: 📦 Commit new posts to dev
+        id: commit_dev
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # _stats.yml is gitignored — regenerated fresh on every render by
+          # publish-live's `news pull`. We only commit post markdown here.
+          git add site/newsletter/posts/
+          if git diff --staged --quiet; then
+            echo "ℹ️ No new newsletter posts"
+            echo "has_new_posts=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          COUNT=$(git diff --staged --name-only | wc -l | tr -d ' ')
+          git commit -m "chore: sync $COUNT newsletter post(s) from Buttondown [automated]"
+
+          # Push with retry. Capture SHA *after* successful push because
+          # `git pull --rebase` during retry rewrites the local commit's SHA.
+          NEWSLETTER_SHA=""
+          for i in 1 2 3; do
+            if git push origin dev; then
+              NEWSLETTER_SHA=$(git rev-parse HEAD)
+              echo "✅ Pushed $COUNT post(s) to dev (SHA: $NEWSLETTER_SHA)"
+              break
+            fi
+            echo "⚠️ Push to dev failed (attempt $i/3), rebasing..."
+            git pull --rebase origin dev
+          done
+
+          if [ -z "$NEWSLETTER_SHA" ]; then
+            echo "❌ Push to dev failed after 3 attempts"
+            exit 1
+          fi
+
+          echo "newsletter_sha=$NEWSLETTER_SHA" >> "$GITHUB_OUTPUT"
+          echo "has_new_posts=true" >> "$GITHUB_OUTPUT"
+
+      - name: 🍒 Cherry-pick newsletter commit onto main
+        if: steps.commit_dev.outputs.has_new_posts == 'true'
+        env:
+          NEWSLETTER_SHA: ${{ steps.commit_dev.outputs.newsletter_sha }}
+        run: |
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+
+          if ! git cherry-pick "$NEWSLETTER_SHA"; then
+            echo "❌ Cherry-pick failed — main and dev have diverged in"
+            echo "   site/newsletter/posts/. The newsletter post is safely on"
+            echo "   dev (SHA: $NEWSLETTER_SHA). Resolve the divergence and"
+            echo "   re-run the workflow."
+            git cherry-pick --abort || true
+            exit 1
+          fi
+
+          for i in 1 2 3; do
+            if git push origin main; then
+              echo "✅ Cherry-picked newsletter commit onto main"
+              break
+            fi
+            echo "⚠️ Push to main failed (attempt $i/3), rebasing..."
+            if ! git pull --rebase origin main; then
+              echo "❌ Rebase failed during cherry-pick promotion"
+              exit 1
+            fi
+          done
+
+      - name: 🚀 Dispatch site-publish-live on main
+        if: steps.commit_dev.outputs.has_new_posts == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run site-publish-live.yml --ref main
+          echo "✅ Dispatched site-publish-live on main"
+          echo ""
+          echo "Watch: https://github.com/${{ github.repository }}/actions/workflows/site-publish-live.yml"
+
+      - name: 📊 Summary
+        if: always()
+        run: |
+          {
+            echo "## 📬 Newsletter Sync"
+            echo ""
+            if [ "${{ steps.commit_dev.outputs.has_new_posts }}" = "true" ]; then
+              echo "- ✅ Pulled new post(s) from Buttondown"
+              echo "- ✅ Committed to \`dev\` (\`${{ steps.commit_dev.outputs.newsletter_sha }}\`)"
+              echo "- ✅ Cherry-picked onto \`main\`"
+              echo "- 🚀 Dispatched \`site-publish-live\` on \`main\` — newsletter live in ~5 min"
+            else
+              echo "No new posts from Buttondown. Nothing to do."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

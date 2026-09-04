@@ -1,0 +1,231 @@
+<!-- Shared head includes — MLSysBook ecosystem -->
+
+<!--
+  theme-persist (inline, sync) — applies stored color-scheme before first paint.
+  Inlined deliberately: runs before any other <script>, no extra round-trip,
+  and avoids per-subsite asset path differences. Canonical source:
+  shared/scripts/theme-persist.js (kept identical for documentation/testability).
+  If you change one, mirror the change to the other.
+-->
+<script>
+(function () {
+  'use strict';
+  var STORAGE_KEY = 'quarto-color-scheme';
+  // Quarto's toggle writes 'alternate'/'default' (alternate = dark, the
+  // layered sheet); sibling non-Quarto sites write 'dark'/'light'. Both
+  // hit the same key, so we accept either. Quarto's own startup still
+  // checks `=== 'alternate'`, so we mirror onto <html> rather than rewrite.
+  function normalize(v) {
+    if (v === 'dark' || v === 'alternate') return 'dark';
+    if (v === 'light' || v === 'default') return 'light';
+    return null;
+  }
+  function preferredScheme() {
+    try {
+      var n = normalize(window.localStorage.getItem(STORAGE_KEY));
+      if (n) return n;
+    } catch (e) {}
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      return 'dark';
+    }
+    return 'light';
+  }
+  function apply(scheme) {
+    var html = document.documentElement;
+    if (!html) return;
+    html.setAttribute('data-bs-theme', scheme);
+    html.setAttribute('data-quarto-color-scheme', scheme);
+    html.style.colorScheme = scheme;
+    // Bridge to legacy `.quarto-dark` body class — about.css,
+    // community.css, and newsletter.css key their dark-mode CSS
+    // variables off `.quarto-dark { ... }`. Quarto's own toggle adds
+    // that class on click, but the OS-pref / first-paint path never
+    // does. Mirror the scheme onto body so those CSS variables fire
+    // on every dark path, not just toggle clicks. body may not exist
+    // yet on the first call (this script runs in <head>); a
+    // MutationObserver below catches it as soon as it parses.
+    var body = document.body;
+    if (body) body.classList.toggle('quarto-dark', scheme === 'dark');
+  }
+  apply(preferredScheme());
+  // Catch the FOUC window between <head> apply() and DOMContentLoaded:
+  // <body> may not exist yet at first apply(), but as soon as the
+  // parser appends it we want the legacy class bridge in place so any
+  // CSS keyed on `.quarto-dark` paints correctly on first render.
+  if (!document.body) {
+    var earlyObserver = new MutationObserver(function () {
+      if (document.body) {
+        apply(preferredScheme());
+        earlyObserver.disconnect();
+      }
+    });
+    earlyObserver.observe(document.documentElement, { childList: true });
+  }
+  // Quarto's toggle updates localStorage but not <html>, so wrap it to
+  // mirror the new value onto data-bs-theme; otherwise clicking the toggle
+  // leaves CSS keyed off [data-bs-theme="dark"] rendering against the wrong
+  // stylesheet until the next reload.
+  function syncFromStorage() {
+    try {
+      var n = normalize(window.localStorage.getItem(STORAGE_KEY));
+      if (n) apply(n);
+    } catch (e) {}
+  }
+  function wrapToggle() {
+    var orig = window.quartoToggleColorScheme;
+    if (typeof orig !== 'function' || orig.__mlsbWrapped) return;
+    var wrapped = function () { var r = orig.apply(this, arguments); syncFromStorage(); return r; };
+    wrapped.__mlsbWrapped = true;
+    window.quartoToggleColorScheme = wrapped;
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { wrapToggle(); syncFromStorage(); });
+  } else {
+    wrapToggle(); syncFromStorage();
+  }
+  // Defend the legacy `.quarto-dark` body class against Quarto's own
+  // `toggleBodyColor(mode)`, which runs *after* this script and re-asserts
+  // the body class based on `mode` — and `mode` defaults to 'light' when
+  // there's no stored quarto-color-scheme value, even when the OS / first
+  // paint already resolved to dark via `data-bs-theme`. Without this
+  // observer, on every fresh visit Quarto would clobber our bridge and
+  // restore `.quarto-light`, leaving `.quarto-dark`-keyed CSS variables
+  // (about/community/newsletter pages) at their light-mode defaults
+  // against the dark `data-bs-theme="dark"` background.
+  function bridgeBody() {
+    var body = document.body;
+    if (!body) return;
+    var wantDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+    if (wantDark && !body.classList.contains('quarto-dark')) {
+      body.classList.add('quarto-dark');
+      body.classList.remove('quarto-light');
+    } else if (!wantDark && body.classList.contains('quarto-dark')) {
+      body.classList.remove('quarto-dark');
+      body.classList.add('quarto-light');
+    }
+  }
+  function watchBody() {
+    if (!document.body) return;
+    bridgeBody();
+    var bodyObs = new MutationObserver(bridgeBody);
+    bodyObs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    var htmlObs = new MutationObserver(bridgeBody);
+    htmlObs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-bs-theme'] });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', watchBody);
+  } else {
+    watchBody();
+  }
+  window.addEventListener('storage', function (ev) {
+    if (ev.key !== STORAGE_KEY) return;
+    var n = normalize(ev.newValue);
+    if (n) apply(n);
+  });
+  if (window.matchMedia) {
+    try {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (ev) {
+        try { if (window.localStorage.getItem(STORAGE_KEY)) return; } catch (e) {}
+        apply(ev.matches ? 'dark' : 'light');
+      });
+    } catch (e) {}
+  }
+})();
+</script>
+
+<!--
+  Build-stamp styling. Tiny, neutral, dark-mode aware. The actual stamp text
+  is injected by shared/scripts/inject-build-stamp.sh into footer markup
+  containing the literal MLSB_BUILD_STAMP HTML-comment token (see that
+  script for the exact pattern — we cannot write it here because HTML
+  comments cannot nest and the inner closer would terminate this block).
+-->
+<style>
+.mlsb-build-stamp {
+  display: inline-block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+[data-bs-theme="dark"] .mlsb-build-stamp { opacity: 0.5; }
+</style>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="icon" href="https://mlsysbook.ai/vol1/assets/images/icons/favicon.png" type="image/png">
+
+<!--
+  navbar-theme-toggle-relocate — moves the Quarto theme toggle into the
+  navbar's right-side .navbar-nav group at page load, so it collapses into
+  the hamburger menu alongside Subscribe/Star/Support/GitHub at narrow widths
+  instead of being stranded in the middle by Quarto's mx-auto brand layout.
+
+  Why JS: Quarto auto-injects the toggle into .quarto-navbar-tools (outside
+  .navbar-collapse). CSS can't move DOM nodes between containers, and CSS
+  positioning hacks (absolute/right: 50px) fight Bootstrap's responsive
+  layout below 992px. Moving the node once at startup is the standard
+  approach used across Quarto-based sites with the same problem.
+-->
+<script>
+(function () {
+  'use strict';
+  function relocateThemeToggle() {
+    var tools = document.querySelector('.quarto-navbar-tools');
+    if (!tools) return;
+    var toggle = tools.querySelector('.quarto-color-scheme-toggle');
+    if (!toggle) return;
+    var navRight = document.querySelector(
+      '.navbar .navbar-collapse .navbar-nav.ms-auto'
+    ) || document.querySelector(
+      '.navbar .navbar-collapse .navbar-nav:last-of-type'
+    );
+    if (!navRight) return;
+    var li = document.createElement('li');
+    li.className = 'nav-item navbar-theme-toggle-item';
+    toggle.classList.add('nav-link');
+    li.appendChild(toggle);
+    navRight.appendChild(li);
+    tools.style.display = 'none';
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', relocateThemeToggle);
+  } else {
+    relocateThemeToggle();
+  }
+})();
+</script>
+
+<!--
+  navbar-brand-href-fix — force the navbar brand link to the ecosystem root
+  (https://mlsysbook.ai/) on every subsite.
+
+  Quarto sets each subsite's `site-url` to `https://mlsysbook.ai/<subsite>/`
+  and then relativizes any navbar.href value that lives inside the
+  site-url's domain. The shared `href: https://mlsysbook.ai/` in
+  navbar-common.yml therefore gets emitted as `./index.html`, which on
+  vol1/vol2/tinytorch/etc. resolves to *that subsite's* root rather than
+  the ecosystem landing page. Override the brand link href in JS after
+  Quarto's render: this is a one-line user-experience fix that does not
+  fight Quarto's URL machinery.
+-->
+<script>
+(function () {
+  'use strict';
+  function fixBrandHref() {
+    var brand = document.querySelectorAll(
+      '.navbar .navbar-brand, .navbar .navbar-brand-logo'
+    );
+    for (var i = 0; i < brand.length; i++) {
+      brand[i].setAttribute('href', 'https://mlsysbook.ai/');
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fixBrandHref);
+  } else {
+    fixBrandHref();
+  }
+})();
+</script>

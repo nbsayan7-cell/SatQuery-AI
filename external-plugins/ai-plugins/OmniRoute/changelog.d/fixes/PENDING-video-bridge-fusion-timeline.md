@@ -1,0 +1,1 @@
+- **fix(video-bridge):** preserve chronological video and transcript fusion, source-frame timestamps, transcript provenance, full contact-sheet intervals, and pre-abort callback isolation ([#11681](https://github.com/diegosouzapw/OmniRoute/pull/11681))

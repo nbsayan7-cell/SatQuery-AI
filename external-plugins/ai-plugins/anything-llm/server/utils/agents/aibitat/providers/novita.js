@@ -1,0 +1,187 @@
+const OpenAI = require("openai");
+const Provider = require("./ai-provider.js");
+const InheritMultiple = require("./helpers/classes.js");
+const UnTooled = require("./helpers/untooled.js");
+const { tooledStream, tooledComplete } = require("./helpers/tooled.js");
+const { RetryError } = require("../error.js");
+const { NovitaLLM } = require("../../../AiProviders/novita/index.js");
+
+/**
+ * The agent provider for the Novita AI provider.
+ * Supports true OpenAI-compatible tool calling when the model supports it,
+ * falling back to the UnTooled prompt-based approach otherwise.
+ */
+class NovitaProvider extends InheritMultiple([Provider, UnTooled]) {
+  model;
+
+  constructor(config = {}) {
+    const { model = "deepseek/deepseek-r1" } = config;
+    super();
+    this.providerTag = "novita";
+    const client = new OpenAI({
+      baseURL: "https://api.novita.ai/v3/openai",
+      apiKey: process.env.NOVITA_LLM_API_KEY,
+      defaultHeaders: {
+        "HTTP-Referer": "https://anythingllm.com",
+        "X-Novita-Source": "anythingllm",
+      },
+    });
+
+    this._client = client;
+    this.model = model;
+    this.verbose = true;
+    this._supportsToolCalling = null;
+  }
+
+  /**
+   * Get the Novita client.
+   * @returns {import("openai").OpenAI}
+   */
+  get client() {
+    return this._client;
+  }
+
+  get supportsAgentStreaming() {
+    return true;
+  }
+
+  /**
+   * Whether the loaded model supports native OpenAI-compatible tool calling.
+   * Checks the Novita model capabilities and caches the result.
+   * @returns {Promise<boolean>}
+   */
+  async supportsNativeToolCalling() {
+    if (this.optsOutOfNativeToolCallingViaEnv(this.providerTag)) return false;
+    if (this._supportsToolCalling !== null) return this._supportsToolCalling;
+    const novita = new NovitaLLM(null, this.model);
+    const capabilities = await novita.getModelCapabilities();
+    this._supportsToolCalling = capabilities.tools === true;
+    return this._supportsToolCalling;
+  }
+
+  async #handleFunctionCallChat({ messages = [] }) {
+    return await this.client.chat.completions
+      .create({
+        model: this.model,
+        messages,
+      })
+      .then((result) => {
+        if (!result.hasOwnProperty("choices"))
+          throw new Error("Novita chat: No results!");
+        if (result.choices.length === 0)
+          throw new Error("Novita chat: No results length!");
+        return result.choices[0].message.content;
+      })
+      .catch((_) => {
+        return null;
+      });
+  }
+
+  async #handleFunctionCallStream({ messages = [] }) {
+    return await this.client.chat.completions.create({
+      model: this.model,
+      stream: true,
+      messages,
+    });
+  }
+
+  /**
+   * Stream a chat completion with tool calling support.
+   * Uses native tool calling when supported, otherwise falls back to UnTooled.
+   */
+  async stream(messages, functions = [], eventHandler = null) {
+    const useNative = await this.supportsNativeToolCalling();
+
+    if (!useNative) {
+      return await UnTooled.prototype.stream.call(
+        this,
+        messages,
+        functions,
+        this.#handleFunctionCallStream.bind(this),
+        eventHandler
+      );
+    }
+
+    this.providerLog(
+      "Provider.stream (tooled) - will process this chat completion."
+    );
+
+    try {
+      return await tooledStream(
+        this.client,
+        this.model,
+        messages,
+        functions,
+        eventHandler,
+        { provider: this }
+      );
+    } catch (error) {
+      console.error(error.message, error);
+      if (error instanceof OpenAI.AuthenticationError) throw error;
+      if (
+        error instanceof OpenAI.RateLimitError ||
+        error instanceof OpenAI.InternalServerError ||
+        error instanceof OpenAI.APIError
+      ) {
+        throw new RetryError(error.message);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Create a non-streaming completion with tool calling support.
+   * Uses native tool calling when supported, otherwise falls back to UnTooled.
+   */
+  async complete(messages, functions = []) {
+    const useNative = await this.supportsNativeToolCalling();
+
+    if (!useNative) {
+      return await UnTooled.prototype.complete.call(
+        this,
+        messages,
+        functions,
+        this.#handleFunctionCallChat.bind(this)
+      );
+    }
+
+    try {
+      const result = await tooledComplete(
+        this.client,
+        this.model,
+        messages,
+        functions,
+        this.getCost.bind(this),
+        { provider: this }
+      );
+
+      if (result.retryWithError) {
+        return this.complete([...messages, result.retryWithError], functions);
+      }
+
+      return result;
+    } catch (error) {
+      if (error instanceof OpenAI.AuthenticationError) throw error;
+      if (
+        error instanceof OpenAI.RateLimitError ||
+        error instanceof OpenAI.InternalServerError ||
+        error instanceof OpenAI.APIError
+      ) {
+        throw new RetryError(error.message);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get the cost of the completion.
+   * Stubbed since Novita AI has no cost basis.
+   * @param _usage The completion to get the cost for.
+   * @returns The cost of the completion.
+   */
+  getCost(_usage) {
+    return 0;
+  }
+}
+
+module.exports = NovitaProvider;
