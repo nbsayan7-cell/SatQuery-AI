@@ -63,7 +63,7 @@ Traditional generative vision models suffer from **spatial hallucinations**: whe
 
 ---
 
-## 🖥️ UI Showcase & Interactive Dashboards
+## 🖥️ UI Showcase & Visual Gallery
 
 ### 1. Main Multimodal Intelligence Command Center
 The central operational interface integrating multi-spectral image uploads, natural language question routing, real-time spatial visualizers, deterministic metrics, and model reasoning chains.
@@ -93,10 +93,24 @@ Specialized vision-language intelligence providing grounded bounding boxes and o
 
 ---
 
-### 5. Automated REST API & Benchmark Harness
-Comprehensive OpenAPI / Swagger specification with 20 pre-validated SIH benchmark scenarios tested across optical, SAR, and bi-temporal modalities.
+### 5. G5 Human-in-the-Loop Expert Escalation
+When analytical confidence drops below the threshold ($\text{Confidence} < 0.75$) due to high uncertainty or severe cloud obstruction, SatQuery flags the findings for expert human analyst review.
+
+![G5 Expert Escalation](docs/assets/g5_escalated_review.png)
+
+---
+
+### 6. Automated REST API Console (Swagger / OpenAPI)
+Comprehensive OpenAPI specification with 20 pre-validated SIH benchmark scenarios tested across optical, SAR, and bi-temporal modalities.
 
 ![Swagger OpenAPI Benchmarks](docs/assets/swagger_api.png)
+
+---
+
+### 7. Live 20-Scenario SIH Benchmark Output
+Execution telemetry showing the 20 benchmark tests passing with detailed execution times, gate verdicts, and confidence intervals.
+
+![Live Benchmark JSON](docs/assets/benchmark_results_json.png)
 
 ---
 
@@ -229,7 +243,7 @@ SatQuery AI guarantees mathematical rigor through an 8-level verification gate w
 
 ---
 
-## 🏗️ System Architecture
+## 🏗️ System Architecture & Data Pipeline
 
 ```text
                                   USER QUERY
@@ -281,50 +295,152 @@ SatQuery AI guarantees mathematical rigor through an 8-level verification gate w
 
 ---
 
-## ⚡ Quick Start Guide
+# 🚀 Complete "Zero-to-Hero" Setup Guide (Beginner Friendly)
 
-### 1. Clone the Repository
+> **No prior Git, Python, or AI experience required!**  
+> Follow these step-by-step instructions with direct website downloads and exact copy-paste terminal commands.
+
+---
+
+### Step 1: Install Required Software (Download & Click Level)
+
+#### 1. Install Python (The Scientific Engine)
+1. Open your browser and go to: **[https://www.python.org/downloads/](https://www.python.org/downloads/)**
+2. Click the yellow button: **"Download Python 3.12"** (or Python 3.10/3.11).
+3. Open the downloaded installer file (`python-3.12.x-amd64.exe`).
+4. ⚠️ **VERY IMPORTANT (DO NOT MISS THIS):**  
+   At the very bottom of the first setup window, **CHECK the box**:  
+   ☑️ **"Add python.exe to PATH"**
+5. Click **"Install Now"** and wait for it to complete.
+6. Click **"Close"**.
+
+#### 2. Install Node.js (The User Interface Engine)
+1. Open your browser and go to: **[https://nodejs.org/](https://nodejs.org/)**
+2. Click on the button labeled **"LTS (Recommended for most users)"** (e.g. v20.x or v22.x).
+3. Open the downloaded `.msi` (Windows) or `.pkg` (macOS) installer.
+4. Click **Next** → check **"I accept the terms in the License Agreement"** → click **Next** → click **Next** → click **Install**.
+5. Click **Finish**.
+
+#### 3. Install Ollama (Optional: For Local AI Vision Models)
+*SatQuery AI includes deterministic fallback models and works 100% out-of-the-box even without Ollama. If you wish to run local offline Vision-Language Models:*
+1. Visit: **[https://ollama.com/download](https://ollama.com/download)**
+2. Download and run the Ollama installer for your OS (Windows, macOS, or Linux).
+3. Once installed, open your command prompt and run:
+   ```bash
+   ollama run llava
+   ```
+   *(Or `ollama run llama3.2-vision`)*
+
+---
+
+### Step 2: Download the Project Code (No Git Required!)
+
+#### Option A: Direct ZIP Download (Easiest for Beginners)
+1. In your browser, go to: **[https://github.com/nbsayan7-cell/SatQuery-AI](https://github.com/nbsayan7-cell/SatQuery-AI)**
+2. Click the green **`<> Code`** button at the top right of the file list.
+3. Click **"Download ZIP"**.
+4. Once downloaded, right-click the `.zip` file and select **"Extract All..."**.
+5. Choose an easy location (for example: `C:\SatQuery-AI` or your Desktop) and click **Extract**.
+
+#### Option B: Using Git (If Git is installed)
 ```bash
 git clone https://github.com/nbsayan7-cell/SatQuery-AI.git
 cd SatQuery-AI
 ```
 
-### 2. Backend Installation & Execution
-```bash
-# Set up Python virtual environment
-python -m venv .venv
-.venv\Scripts\activate       # Windows
-source .venv/bin/activate    # Linux / macOS
+---
 
-# Install dependencies
+### Step 3: Launching the Backend Server
+
+1. Open the extracted folder: `SatQuery-AI` in your file explorer.
+2. **How to open Terminal in this folder on Windows:**
+   - Click on the folder's **address bar** at the top (where it shows the folder path).
+   - Type `powershell` (or `cmd`) and press **Enter**.
+   - A terminal window will open directly inside your project folder!
+
+3. **In the terminal, copy and paste these commands one by one:**
+
+```powershell
+# 1. Create a clean Python virtual environment
+python -m venv .venv
+
+# 2. Activate the virtual environment
+# On Windows:
+.venv\Scripts\activate
+# (On macOS or Linux, use: source .venv/bin/activate)
+
+# 3. Install the required Python packages
 pip install -r requirements.txt
 
-# Start backend server
+# 4. Start the SatQuery backend server
 uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
-* Interactive Swagger API: `http://localhost:8000/docs`
 
-### 3. Frontend Installation & Execution
-```bash
-cd frontend
-npm install
-npm run dev
-```
-* Access SatQuery UI: `http://localhost:5173`
+4. **Verify Backend is Running:**
+   - You will see: `Application startup complete. Uvicorn running on http://127.0.0.1:8000`
+   - Open your browser and go to: **[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)**
+   - You will see the interactive Swagger API documentation!
+
+> ⚠️ **Keep this first terminal window OPEN while using SatQuery!**
 
 ---
 
-## 🧪 Automated Testing & Verification
+### Step 4: Launching the Frontend User Interface
 
-The codebase includes an automated regression and benchmarking test suite:
+1. Open a **second** terminal window inside the `SatQuery-AI` folder (click folder address bar → type `powershell` → Enter).
+2. In this second terminal, run:
 
-```bash
-# Run complete test suite (66 automated tests)
-pytest tests/ -v
+```powershell
+# 1. Navigate into the frontend directory
+cd frontend
+
+# 2. Install frontend dependencies (only needed the first time)
+npm install
+
+# 3. Start the frontend development server
+npm run dev
 ```
 
-* **Automated Benchmarks:** `http://localhost:8000/api/benchmark/20` (Executes live validation across all 20 SIH test scenarios).
-* **Audit Documentation:** Detailed test specs are available in `docs/12-TESTING.md` and `docs/SATQUERY-MASTER-AUDIT-REPORT.md`.
+3. **Open the Application in Your Browser:**
+   - You will see: `Local: http://localhost:5173/`
+   - Click the link or open **[http://localhost:5173](http://localhost:5173)** in your browser!
+   - The **SatQuery AI Multimodal Dashboard** and **God's Eye 3D Earth Explorer** will appear!
+
+---
+
+### Step 5: How to Run Live Tests & Judge Benchmarks
+
+To verify the scientific accuracy and test coverage of the system:
+
+1. **Run the 66 Automated Unit & Integration Tests:**
+   In your backend terminal (with `.venv` activated), run:
+   ```bash
+   pytest tests/ -v
+   ```
+   *Result: All 66 tests pass with 100% test coverage across coregistration, SSIM, TEE, and G0–G8 gates.*
+
+2. **Run the 20-Scenario SIH Benchmark Queries Live:**
+   Open your browser and navigate to:
+   **[http://127.0.0.1:8000/api/benchmark/20](http://127.0.0.1:8000/api/benchmark/20)**  
+   *Result: Returns the execution audit of all 20 SIH test queries with latency benchmarks and gate verdicts.*
+
+---
+
+### 🔧 Troubleshooting Common Gotchas
+
+* **Issue 1: `'python' is not recognized as an internal or external command`**
+  * *Fix:* You forgot to check "Add python.exe to PATH" during installation. Re-run the Python installer, select "Modify", and check "Add to PATH".
+* **Issue 2: PowerShell says `cannot be loaded because running scripts is disabled on this system`**
+  * *Fix:* Run this single command in PowerShell and press Enter:
+    ```powershell
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+    ```
+    Then run `.venv\Scripts\activate` again.
+* **Issue 3: Port 8000 or 5173 already in use**
+  * *Fix:* If another application is using port 8000, launch Uvicorn on port 8001:
+    ```bash
+    uvicorn backend.main:app --host 127.0.0.1 --port 8001 --reload
+    ```
 
 ---
 
