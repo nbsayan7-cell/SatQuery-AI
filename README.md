@@ -25,7 +25,7 @@
 ## 👥 Team Details
 
 * **Project:** SatQuery AI
-* **Team Leader:** SNEHA DEY
+* **Team Leader:** 
 * **Repository:** [https://github.com/nbsayan7-cell/SatQuery-AI](https://github.com/nbsayan7-cell/SatQuery-AI)
 * **Submission Status:** Public Open-Source Repository
 
