@@ -1,5 +1,1101 @@
 [
   {
+    "timestamp": "2026-09-07T22:58:13.964454+00:00",
+    "image_id": "demo-optical",
+    "query": "[ROI] Analyze features and land cover in this specific region",
+    "answer": "[ROI Analysis] Based on the analyzed Optical (Multispectral/RGB) satellite scene, the region features a mix of urban and suburban areas, with a prominent tall building in the center surrounded by other buildings. The scene also exhibits a road in the background, and scattered trees are visible throughout the area, indicating a blend of built-up and natural land cover. (Analyzed via 1.22x super-resolved sub-region)",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM) (ROI Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T22:57:26.949067+00:00",
+    "image_id": "demo-optical",
+    "query": "[AUTO-CAPTION]",
+    "answer": "Based on the provided optical satellite scene, the landscape features a densely populated cityscape with a mix of residential and commercial buildings, predominantly gray and white in color, situated along a street lined with trees and vegetation. The urban environment is characterized by a moderate level of vehicular activity, indicating a busy and dynamic cityscape with a blend of natural and built environments.",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:56:50.905186+00:00",
+    "image_id": "tee_b35cac8a0f3f vs tee_1f7e0c96a63c",
+    "query": "[FINE-GRAINED-CHANGE] 1 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n54.118% of the analyzed scene changed,\ncorresponding to 14,186,700 m\u00b2 (1418.7 ha).\n\nBreakdown:\n\u2022 Damage: 26,214,400 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 9.270.\nMean Mahalanobis distance: 5.16.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n14,146,835.1\u201314,226,564.9 m\u00b2.\n\nAlignment: PASSED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T22:56:50.162475+00:00",
+    "image_id": "tee_1f7e0c96a63c",
+    "query": "[TEE-EXTRACT] Date: 2024-06-15, Bbox: [88.3306, 22.7415, 88.404, 22.7478]",
+    "answer": null,
+    "confidence": null,
+    "model_used": null
+  },
+  {
+    "timestamp": "2026-09-07T22:56:48.790497+00:00",
+    "image_id": "tee_b35cac8a0f3f",
+    "query": "[TEE-EXTRACT] Date: 2018-06-15, Bbox: [88.3306, 22.7415, 88.404, 22.7478]",
+    "answer": null,
+    "confidence": null,
+    "model_used": null
+  },
+  {
+    "timestamp": "2026-09-07T22:55:53.944257+00:00",
+    "image_id": "tee_fa8bfa8553f3 vs tee_af2800ef3563",
+    "query": "[FINE-GRAINED-CHANGE] 1 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n54.440% of the analyzed scene changed,\ncorresponding to 14,271,200 m\u00b2 (1427.1 ha).\n\nBreakdown:\n\u2022 Damage: 26,214,400 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 8.921.\nMean Mahalanobis distance: 4.91.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n14,196,564.3\u201314,345,835.7 m\u00b2.\n\nAlignment: PASSED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T22:55:52.822356+00:00",
+    "image_id": "tee_af2800ef3563",
+    "query": "[TEE-EXTRACT] Date: 2024-06-15, Bbox: [88.34, 22.54, 88.38, 22.58]",
+    "answer": null,
+    "confidence": null,
+    "model_used": null
+  },
+  {
+    "timestamp": "2026-09-07T22:55:46.993585+00:00",
+    "image_id": "tee_fa8bfa8553f3",
+    "query": "[TEE-EXTRACT] Date: 2018-06-15, Bbox: [88.34, 22.54, 88.38, 22.58]",
+    "answer": null,
+    "confidence": null,
+    "model_used": null
+  },
+  {
+    "timestamp": "2026-09-07T22:34:50.011641+00:00",
+    "image_id": "tee_f3f9eaa55996",
+    "query": "[TEE-EXTRACT] Date: 2024-06-15, Bbox: [88.35, 22.56, 88.38, 22.59]",
+    "answer": null,
+    "confidence": null,
+    "model_used": null
+  },
+  {
+    "timestamp": "2026-09-07T22:34:47.246119+00:00",
+    "image_id": "tee_a55130ae16f0",
+    "query": "[TEE-EXTRACT] Date: 2018-06-15, Bbox: [88.35, 22.56, 88.38, 22.59]",
+    "answer": null,
+    "confidence": null,
+    "model_used": null
+  },
+  {
+    "timestamp": "2026-09-07T22:27:46.501536+00:00",
+    "image_id": "demo-change-2020 vs demo-change-2024",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T22:27:26.461369+00:00",
+    "image_id": "fusion-optical + fusion-sar",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Fusion analysis complete. Based on the co-registered Sentinel-2 Optical and Sentinel-1 SAR observations, our multimodal fusion report reveals that the SAR radar backscatter complements optical spectral reflectance by providing valuable information about the scene's topography and potential obstacles or structures beneath the surface. The SAR data's ability to penetrate through atmospheric conditions and vegetation, as well as its sensitivity to surface roughness and texture, enhances our understanding of the scene's layout and features. By combining the optical and SAR modalities, we can achieve a more comprehensive and robust scene understanding, leveraging the strengths of each modality to overcome the limitations of the other.",
+    "confidence": 0.97,
+    "model_used": "fusion-stub-multimodal-v2 (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:26:21.174478+00:00",
+    "image_id": "demo-optical",
+    "query": "[AUTO-CAPTION]",
+    "answer": "Based on the provided optical satellite scene, the landscape features a densely populated urban area with a mix of residential and commercial buildings, situated along a street with a crosswalk and lined with trees. The infrastructure includes a bus, indicating the presence of public transportation, and the land-use is predominantly urban, with a small amount of greenery provided by the trees and a few brown and green structures.",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:25:36.885175+00:00",
+    "image_id": "92fbc8d8-5443-4405-a4ef-15d0a9ef0519",
+    "query": "[ROI] Inspect targeted sector",
+    "answer": "[ROI Analysis] Based on the analyzed Optical (Multispectral/RGB) satellite scene, I can confirm that the targeted sector is the city center, where a large building is situated, surrounded by trees. This sector offers a comprehensive view of the city's layout, showcasing the relationship between the buildings and the natural environment. The high-angle perspective provides a unique insight into the city's architecture and the interplay between nature and urban development. (Analyzed via 1.25x super-resolved sub-region)",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM) (ROI Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T22:25:33.182712+00:00",
+    "image_id": "92fbc8d8-5443-4405-a4ef-15d0a9ef0519",
+    "query": "[ESCALATED-PRECISION] Verify vegetation and structures with escalation",
+    "answer": "[High-Precision Verified] Based on the analyzed Optical (Multispectral/RGB) satellite scene, I verify the presence of vegetation, specifically a small portion of a tree, adding a touch of greenery to the urban landscape. Additionally, the scene reveals a variety of structures, including buildings with flat and red roofs, as well as cars and pedestrians on the city streets.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM) + EscalationEngine-v2"
+  },
+  {
+    "timestamp": "2026-09-07T22:25:27.381019+00:00",
+    "image_id": "92fbc8d8-5443-4405-a4ef-15d0a9ef0519 + a56f144c-bcc6-4c99-a41b-944772a65e5a",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Fusion analysis complete. Based on the co-registered Sentinel-2 optical and Sentinel-1 SAR observations, the fusion report highlights the synergistic benefits of combining these modalities. The SAR radar backscatter complements the optical spectral reflectance by providing a unique perspective on the scene's structural features, such as metallic and dielectric objects, which are not readily apparent in the optical imagery. This multimodal fusion enables a more comprehensive understanding of the scene, as the SAR data helps to clarify the nature of the bright areas in the optical image, while the optical data provides context on the urban environment and vegetation patterns.",
+    "confidence": 0.97,
+    "model_used": "fusion-stub-multimodal-v2 (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:25:21.958423+00:00",
+    "image_id": "92fbc8d8-5443-4405-a4ef-15d0a9ef0519 vs 92fbc8d8-5443-4405-a4ef-15d0a9ef0519",
+    "query": "[FINE-GRAINED-CHANGE] 0 regions segmented",
+    "answer": "No significant structural changes detected between Baseline (T0) and Target (T1). Surface stability index is 99.2% across all quadrants (mean delta: 0.0).",
+    "confidence": 0.96,
+    "model_used": "change-detection-stub-v1 (False-Positive Suppression Engine)"
+  },
+  {
+    "timestamp": "2026-09-07T22:25:21.829789+00:00",
+    "image_id": "92fbc8d8-5443-4405-a4ef-15d0a9ef0519",
+    "query": "[AUTO-CAPTION]",
+    "answer": "Based on the provided optical satellite scene, the landscape features a cityscape with a mix of gray and white buildings, red-roofed structures, and a network of paved and unpaved roads, showcasing the urban infrastructure. The surrounding natural environment is characterized by trees, indicating a blend of urban and natural land-use patterns, with the city's layout and infrastructure visible from a bird's eye perspective.",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:25:18.433085+00:00",
+    "image_id": "92fbc8d8-5443-4405-a4ef-15d0a9ef0519",
+    "query": "Identify all land cover classes and vessels",
+    "answer": "Based on the analyzed Optical (Multispectral/RGB) satellite scene, the identified land cover classes are: urban areas (buildings, streets, and parking lots), green spaces (green roofs and trees along the street), and natural areas (trees along the street). As for vessels, the scene features a bus, cars, and a truck parked on the street.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:22:43.317356+00:00",
+    "image_id": "d12d0e93-3886-4517-96ed-61dba7242a2e",
+    "query": "[ESCALATED-PRECISION] Verify vegetation and structures with escalation",
+    "answer": "[High-Precision Verified] Based on the analyzed Optical (Multispectral/RGB) satellite scene, I verify that the image presents a mix of vegetation and structures. The scene features a dense population of buildings and trees, with some buildings having flat roofs and others featuring pitched roofs, indicating a diverse urban landscape. This conclusion is supported by the spatial tiling (2x2 partition) and test-time augmentation (TTA) techniques, which revealed 4 localized features. With a recomputed confidence level of 95.0%, I confirm that the scene exhibits a combination of vegetation and structures, with varying roof types and a dense urban environment.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM) + EscalationEngine-v2"
+  },
+  {
+    "timestamp": "2026-09-07T22:22:36.761349+00:00",
+    "image_id": "d12d0e93-3886-4517-96ed-61dba7242a2e + f0624465-094a-4103-9ccf-b79408537c55",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Fusion analysis complete. Based on the co-registered Sentinel-2 Optical and Sentinel-1 SAR observations, our multimodal fusion report reveals that the SAR radar backscatter complements optical spectral reflectance by providing a unique perspective on the city's infrastructure and structures. The SAR image's detection of metallic and dielectric structures, as indicated by the white lines and dots, enhances our understanding of the city's urban development, while the optical image's visual observations of buildings, trees, and streets provide contextual information on the city's layout and green spaces. This multimodal fusion enables a more comprehensive and robust scene understanding, as the SAR and optical data collectively reveal the city's complex urban dynamics.",
+    "confidence": 0.97,
+    "model_used": "fusion-stub-multimodal-v2 (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:22:30.941335+00:00",
+    "image_id": "d12d0e93-3886-4517-96ed-61dba7242a2e vs d12d0e93-3886-4517-96ed-61dba7242a2e",
+    "query": "[FINE-GRAINED-CHANGE] 0 regions segmented",
+    "answer": "No significant structural changes detected between Baseline (T0) and Target (T1). Surface stability index is 99.2% across all quadrants (mean delta: 0.0).",
+    "confidence": 0.96,
+    "model_used": "change-detection-stub-v1 (False-Positive Suppression Engine)"
+  },
+  {
+    "timestamp": "2026-09-07T22:22:30.810518+00:00",
+    "image_id": "d12d0e93-3886-4517-96ed-61dba7242a2e",
+    "query": "[AUTO-CAPTION]",
+    "answer": "Based on the provided optical satellite scene, the landscape features a densely populated urban area with a mix of building sizes and shapes, surrounded by vegetation, showcasing a blend of natural and built environments. The infrastructure consists of a network of paved and unpaved roads, with varying conditions, crisscrossing the city, highlighting the urban layout and spatial relationships between the different elements.",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:22:27.219540+00:00",
+    "image_id": "d12d0e93-3886-4517-96ed-61dba7242a2e",
+    "query": "Identify all land cover classes and vessels",
+    "answer": "Based on the verified observations from the vision-language model (Moondream), the land cover classes identified in this Optical satellite scene are: urban areas (buildings, streets, and pavement), vegetation (trees along the street), and water bodies (not explicitly visible but potentially present). Additionally, vessels (cars) are parked along the street, indicating a bustling city environment.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:22:07.520625+00:00",
+    "image_id": "51ed7bfb-8de8-4c6b-8b7e-02251e118e50 vs 51ed7bfb-8de8-4c6b-8b7e-02251e118e50",
+    "query": "[FINE-GRAINED-CHANGE] 0 regions segmented",
+    "answer": "No significant structural changes detected between Baseline (T0) and Target (T1). Surface stability index is 99.2% across all quadrants (mean delta: 0.0).",
+    "confidence": 0.96,
+    "model_used": "change-detection-stub-v1 (False-Positive Suppression Engine)"
+  },
+  {
+    "timestamp": "2026-09-07T22:22:07.436514+00:00",
+    "image_id": "51ed7bfb-8de8-4c6b-8b7e-02251e118e50",
+    "query": "[AUTO-CAPTION]",
+    "answer": "Based on the provided optical satellite scene, the landscape features a cityscape with a mix of residential and commercial structures, surrounded by trees and greenery, showcasing a blend of natural and urban environments. The infrastructure is characterized by a complex network of roads with clearly marked white lines, providing a comprehensive view of the city's layout and infrastructure.",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:22:04.062776+00:00",
+    "image_id": "51ed7bfb-8de8-4c6b-8b7e-02251e118e50",
+    "query": "Identify all land cover classes and vessels",
+    "answer": "Based on the analyzed Optical (Multispectral/RGB) satellite scene, the identified land cover classes are: buildings (predominantly gray and white), vegetation (green and brown, including trees), and roads (paved and unpaved). No vessels are observed in the scene. The comprehensive view of the city's layout and infrastructure provides a clear representation of these land cover classes.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:21:31.799621+00:00",
+    "image_id": "demo-optical vs demo-optical",
+    "query": "[FINE-GRAINED-CHANGE] 0 regions segmented",
+    "answer": "No significant structural changes detected between Baseline (T0) and Target (T1). Surface stability index is 99.2% across all quadrants (mean delta: 0.0).",
+    "confidence": 0.96,
+    "model_used": "change-detection-stub-v1 (False-Positive Suppression Engine)"
+  },
+  {
+    "timestamp": "2026-09-07T22:21:05.925447+00:00",
+    "image_id": "demo-disaster-pre vs demo-disaster-post",
+    "query": "[FINE-GRAINED-CHANGE] 3 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n22.613% of the analyzed scene changed,\ncorresponding to 9,043,100 m\u00b2 (904.3 ha).\n\nBreakdown:\n\u2022 Damage: 37,974,200 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 1.293.\nMean Mahalanobis distance: 5.78.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n1,990,736.3\u201316,095,463.7 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T22:20:58.594991+00:00",
+    "image_id": "demo-diff-a vs demo-diff-b",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (distance: ~1305.5 km; spatial overlap: 0%). Bi-temporal change detection requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T22:20:56.220964+00:00",
+    "image_id": "demo-diff-a + demo-diff-b",
+    "query": "[FUSION-BLOCKED]",
+    "answer": "\u274c MULTIMODAL FUSION REJECTED (BLOCKED): Input scenes represent completely different geographic regions (distance: ~1305.5 km; spatial overlap: 0%). Multimodal Optical + SAR fusion requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Multimodal Integrity Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T22:20:00.695917+00:00",
+    "image_id": "demo-diff-a",
+    "query": "[AUTO-CAPTION]",
+    "answer": "Based on the provided optical satellite scene, the landscape features a densely populated urban area with a winding river running through it, characterized by a mix of natural and urban land cover types, including fields, forests, and buildings. The scene presents a comprehensive view of the city's layout and the river's course, with predominantly green and brown colors reflecting the natural and urban elements of the area.",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:19:48.745227+00:00",
+    "image_id": "demo-diff-a vs demo-diff-b",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (distance: ~1305.5 km; spatial overlap: 0%). Bi-temporal change detection requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T22:19:38.677039+00:00",
+    "image_id": "demo-diff-a",
+    "query": "[AUTO-CAPTION]",
+    "answer": "Based on the provided optical satellite scene, the landscape features a city situated near a winding river, with a mix of green and brown hues indicating a combination of urban and vegetated areas. The city's infrastructure is characterized by roads and buildings, suggesting a developed urban environment with a clear relationship between the city and the surrounding river.",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:19:27.154816+00:00",
+    "image_id": "demo-optical",
+    "query": "[AUTO-CAPTION]",
+    "answer": "Based on the provided optical satellite scene, the landscape features a densely populated urban area with a mix of tall and short buildings, predominantly gray and white in color, surrounded by a blend of trees and roads. The infrastructure is characterized by a network of roads and vehicles, including cars and buses, indicating a high level of urbanization and human activity.",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:19:19.484786+00:00",
+    "image_id": "168555ec-0afb-4b3f-bf39-2142dec971b1 vs 168555ec-0afb-4b3f-bf39-2142dec971b1",
+    "query": "[FINE-GRAINED-CHANGE] 0 regions segmented",
+    "answer": "No significant structural changes detected between Baseline (T0) and Target (T1). Surface stability index is 99.2% across all quadrants (mean delta: 0.0).",
+    "confidence": 0.96,
+    "model_used": "change-detection-stub-v1 (False-Positive Suppression Engine)"
+  },
+  {
+    "timestamp": "2026-09-07T22:19:19.374418+00:00",
+    "image_id": "168555ec-0afb-4b3f-bf39-2142dec971b1",
+    "query": "[AUTO-CAPTION]",
+    "answer": "Based on the provided optical satellite scene, the cityscape features a dense urban environment with a mix of building styles and heights, surrounded by a network of roads and transportation infrastructure, with visible signs of vegetation and greenery. The scene presents a comprehensive view of the city's layout, showcasing its urban infrastructure and land-use patterns, with a blend of built-up areas, transportation corridors, and natural features.",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:19:12.885290+00:00",
+    "image_id": "168555ec-0afb-4b3f-bf39-2142dec971b1",
+    "query": "Identify all land cover classes and vessels",
+    "answer": "Based on the verified observations from the Moondream model, I can identify the following land cover classes and vessels:\n\nThe image shows a mix of urban land cover classes, including buildings, trees, and vehicles. The buildings are the primary land cover class, with varying heights and architectural styles. Additionally, the image features trees as a secondary land cover class, providing a natural element to the urban landscape.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:19:08.523279+00:00",
+    "image_id": "demo-change-2020 vs demo-change-2024",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T22:13:04.567121+00:00",
+    "image_id": "tee_a7bc148be07f",
+    "query": "[TEE-EXTRACT] Date: 2020-06-15, Source: NASA_GIBS",
+    "answer": null,
+    "confidence": null,
+    "model_used": null
+  },
+  {
+    "timestamp": "2026-09-07T22:13:04.436571+00:00",
+    "image_id": "3aed1139-4e53-433a-ab97-621afd1ab33c",
+    "query": "[ROI] Describe this parcel",
+    "answer": "[ROI Analysis] Based on the SAR satellite imagery, the scene depicts a developed urban area with a prominent open space, likely a park or plaza, surrounded by a mix of residential and commercial buildings, with roads and infrastructure visible throughout the cityscape. The landscape is predominantly gray, with scattered areas of green vegetation and trees, indicating a blend of urban and natural land-use patterns. (Analyzed via 42.67x super-resolved sub-region)",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM) (ROI Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T22:13:01.025497+00:00",
+    "image_id": "e0722f41-b2ec-4cac-a3f2-ae95a386c0aa",
+    "query": "[ROI] Are there buildings in this sector?",
+    "answer": "[ROI Analysis] Based on the SAR (Radar) image analysis, I did not detect any spectral signatures indicative of buildings or urban structures. The detected spectral classes are primarily related to water bodies, vegetation, and agricultural/forestry areas, with no notable signatures suggesting the presence of buildings. Therefore, I conclude that there are no buildings in this sector, as indicated by the SAR image analysis. (Analyzed via 256.0x super-resolved sub-region)",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered) (ROI Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:57.897082+00:00",
+    "image_id": "84aa3560-177d-49c4-ac10-f9abc1a5a88a",
+    "query": "Can you describe this image?",
+    "answer": "The image displays a coastal region with industrial infrastructure and surrounding marine activity.",
+    "confidence": 0.88,
+    "model_used": "captioning-stub-v1"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:57.876049+00:00",
+    "image_id": "84aa3560-177d-49c4-ac10-f9abc1a5a88a",
+    "query": "Are there any ships?",
+    "answer": "Yes, I can identify 3 vessels in this sector.",
+    "confidence": 0.85,
+    "model_used": "vqa-stub-v3-evidence (Ollama-ready)"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:57.851867+00:00",
+    "image_id": "80d9b4e8-e1ce-4321-8369-f56937477fdd",
+    "query": "Are there any ships?",
+    "answer": "Yes, I can identify 3 vessels in this sector.",
+    "confidence": 0.85,
+    "model_used": "vqa-stub-v3-evidence (Ollama-ready)"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:57.811122+00:00",
+    "image_id": "8e84aac3-5881-4203-9334-38b622beddd8 vs 2883abf9-bb9c-4226-9664-eb4930a4a5fc",
+    "query": "[PAIR-VALIDATION] Decision: CONTINUE (VALID_SAME_AREA_DIFFERENT_TIME)",
+    "answer": null,
+    "confidence": null,
+    "model_used": null
+  },
+  {
+    "timestamp": "2026-09-07T22:12:57.675785+00:00",
+    "image_id": "a1847b86-ae03-4874-b220-55ed6c341d79 vs 3367223b-526d-4756-b209-a66a99f7144f",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, India vs Delhi, India) (distance: ~1305.5 km; spatial overlap: 0%). Bi-temporal change detection requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:57.464952+00:00",
+    "image_id": "7e8d685d-36aa-4965-9912-b1e719f09f92 + 0ac389aa-fc38-4f38-8131-d6d258b81500",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Fusion analysis complete. Based on the co-registered Sentinel-2 Optical and Sentinel-1 SAR observations, our multimodal fusion report reveals that the SAR radar backscatter complements optical spectral reflectance by providing a unique perspective on the city's infrastructure and layout. The SAR image's ability to penetrate through atmospheric conditions and capture backscatter reflections from metallic and dielectric structures, such as buildings and roads, enhances our understanding of the city's spatial organization and density. This multimodal fusion enables a more comprehensive scene understanding, as the optical image's detailed information on vegetation, buildings, and roads is augmented by the SAR image's insights into the city's underlying infrastructure.",
+    "confidence": 0.97,
+    "model_used": "fusion-stub-multimodal-v2 (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:51.613799+00:00",
+    "image_id": "57274f31-e67f-449e-bf3e-09787c731d0e",
+    "query": "[ESCALATED-PRECISION] Assess structural density across optical and SAR modalities",
+    "answer": "[High-Precision Verified] Based on the verified physical evidence from the satellite scene, I conclude that the structural density of the building is accurately represented in the Sentinel-1 SAR image, with a confidence level of 95.0%. The SAR modality provides a higher level of spatial resolution and texture information, revealing more nuanced details about the building's structure compared to the optical image. The cross-modal SAR verification stage confirms the accuracy of this assessment, further supporting the conclusion that the SAR image is the most reliable representation of the building's structural density.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM) + EscalationEngine-v2"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:38.659446+00:00",
+    "image_id": "be6e5f7f-56e0-4d87-b461-c60d0ceb4a2c",
+    "query": "[ESCALATED-PRECISION] Are there any buildings or roads in this scene?",
+    "answer": "[High-Precision Verified] Based on the verified observations from the Moondream model, spatial tiling, and test-time augmentation, I can confirm with high precision that there are indeed buildings and roads present in this Optical satellite scene. Specifically, the scene features scattered buildings, with some located near the center and others towards the edges, as well as roads that are also spread out, with some appearing closer to the center and others more distant. This conclusion is supported by the 5 localized features detected within the scene, with a recomputed confidence score of 95.0%.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM) + EscalationEngine-v2"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:32.074411+00:00",
+    "image_id": "de0cc02b-7aff-4ecc-8fb8-057eb612686a vs c7edb4d4-bfbe-4ccd-8d4d-f5f649ac3432",
+    "query": "[FINE-GRAINED-CHANGE] 1 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n0.000% of the analyzed scene changed,\n\nBreakdown:\n\u2022 Damage: 409,600 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 9961103.000.\nMean Mahalanobis distance: 445.46.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n0.0\u20130.0 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:25.399731+00:00",
+    "image_id": "d88f5e9f-7dcb-4020-b0db-818ff3cf961d vs 13d88266-032d-4702-bd22-9a35244e34d3",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:24.960293+00:00",
+    "image_id": "e70ddc57-0604-49da-b21a-8a66bd7d7934 vs 73f73b1c-a21a-4c3e-99b8-b8a5615acbe1",
+    "query": "[FINE-GRAINED-CHANGE] 0 regions segmented",
+    "answer": "No significant structural changes detected between Baseline (T0) and Target (T1). Surface stability index is 99.2% across all quadrants (mean delta: 0.0).",
+    "confidence": 0.96,
+    "model_used": "change-detection-stub-v1 (False-Positive Suppression Engine)"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:24.616065+00:00",
+    "image_id": "27a2250e-f6b2-4af2-b10b-883a3ca9c28e vs 1fd69bca-8db6-4d7d-9acd-4f1c5888b5d3",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, India vs Delhi, India) (distance: ~1305.5 km; spatial overlap: 0%). Bi-temporal change detection requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:24.122125+00:00",
+    "image_id": "95b4ab89-c302-4de9-ae06-438661308d85 vs 6eb31e01-a100-4179-9469-1dbaadea366f",
+    "query": "[FINE-GRAINED-CHANGE] 3 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n22.613% of the analyzed scene changed,\ncorresponding to 9,043,100 m\u00b2 (904.3 ha).\n\nBreakdown:\n\u2022 Damage: 37,974,200 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 1.293.\nMean Mahalanobis distance: 5.78.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n1,990,736.3\u201316,095,463.7 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T22:12:23.417305+00:00",
+    "image_id": "f553d7a7-1c08-4370-8f47-e2e5428fc25c",
+    "query": "[AUTO-CAPTION]",
+    "answer": "The image displays a coastal region with industrial infrastructure and surrounding marine activity.",
+    "confidence": 0.88,
+    "model_used": "captioning-stub-v1"
+  },
+  {
+    "timestamp": "2026-09-07T22:10:02.548315+00:00",
+    "image_id": "f3be0a4c-90f2-4863-9692-c634b7f57d43 + bb6ad772-e7d4-47bd-bd6f-fb0831066a55",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Fusion analysis complete. Based on the co-registered Sentinel-2 Optical and Sentinel-1 SAR observations, our multimodal fusion report reveals that the SAR radar backscatter complements optical spectral reflectance by providing a unique perspective on the cityscape's structural features. The SAR image's ability to penetrate through atmospheric conditions and capture backscatter reflections from metallic and dielectric materials enhances our understanding of the urban environment, particularly in areas with high levels of optical cloud attenuation. By combining the strengths of both modalities, we achieve a more comprehensive and robust scene understanding, enabling the detection of subtle changes and features that may be obscured or misinterpreted by a single modality alone.",
+    "confidence": 0.97,
+    "model_used": "fusion-stub-multimodal-v2 (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:09:40.035364+00:00",
+    "image_id": "f3b38d77-3aef-41f3-add8-d5fd7a5785d3 + 998febcc-7ec3-4303-a439-5b44559fe6a7",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Fusion analysis complete. Based on the co-registered Sentinel-2 optical and Sentinel-1 SAR observations, our multimodal fusion report reveals that the SAR radar backscatter complements optical spectral reflectance by providing robust scene understanding through its ability to penetrate through atmospheric and vegetation obscurations, revealing structural information about the cityscape. The SAR image's high backscatter complexity (16.5) suggests a high level of urban density, which is corroborated by the optical image's visual observations of buildings and streets. By combining these modalities, we achieve a more comprehensive understanding of the city's layout, characteristics, and features, enabling accurate scene interpretation and analysis.",
+    "confidence": 0.97,
+    "model_used": "fusion-multimodal-v2 (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:09:33.963271+00:00",
+    "image_id": "3cfe7b48-9e5f-4af3-9c15-197c8904b17a vs 3a44bf4b-353a-432f-9576-b07065a82a1d",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T22:09:33.479776+00:00",
+    "image_id": "0e146fef-cc34-4563-80ba-d333155e5f2f vs 45a897ba-64e7-4674-8640-d26f6458fffe",
+    "query": "[FINE-GRAINED-CHANGE] 0 regions segmented",
+    "answer": "No significant structural changes detected between Baseline (T0) and Target (T1). Surface stability index is 99.2% across all quadrants (mean delta: 0.0).",
+    "confidence": 0.96,
+    "model_used": "change-detection-stub-v1 (False-Positive Suppression Engine)"
+  },
+  {
+    "timestamp": "2026-09-07T22:09:33.090250+00:00",
+    "image_id": "7f2b6f8a-e770-4b69-a8be-b32585247eac vs 976bca77-8658-4e60-8297-2b0a78dd8f6e",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, India vs Delhi, India) (distance: ~1305.5 km; spatial overlap: 0%). Bi-temporal change detection requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T22:09:32.553697+00:00",
+    "image_id": "3a489139-406e-42e9-b1a5-82eacd83b00a vs a8aac653-0cde-4e1f-9e3d-52cb886295d2",
+    "query": "[FINE-GRAINED-CHANGE] 3 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n22.613% of the analyzed scene changed,\ncorresponding to 9,043,100 m\u00b2 (904.3 ha).\n\nBreakdown:\n\u2022 Damage: 37,974,200 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 1.293.\nMean Mahalanobis distance: 5.78.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n1,990,736.3\u201316,095,463.7 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T22:06:41.669471+00:00",
+    "image_id": "tee_3a46817394b7",
+    "query": "[TEE-EXTRACT] Date: 2020-06-15, Source: NASA_GIBS",
+    "answer": null,
+    "confidence": null,
+    "model_used": null
+  },
+  {
+    "timestamp": "2026-09-07T22:06:41.525451+00:00",
+    "image_id": "d32ebf6d-5408-4ed2-a93f-633d5575e25b",
+    "query": "[ROI] Describe this parcel",
+    "answer": "[ROI Analysis] Based on the SAR satellite scene, the city presents a densely populated urban landscape with a well-planned infrastructure, featuring a mix of residential, commercial, and industrial areas, with roads and streets serving as the primary transportation routes. The scene also showcases a blend of natural and man-made elements, with trees and vegetation scattered throughout the urban environment, indicating a balance between urban development and green spaces. (Analyzed via 42.67x super-resolved sub-region)",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM) (ROI Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T22:06:37.681075+00:00",
+    "image_id": "ee980de0-1e50-4118-9652-c5d6a187ddc6",
+    "query": "[ROI] Are there buildings in this sector?",
+    "answer": "[ROI Analysis] Based on the SAR (Radar) image analysis, I can confidently state that there is no visual evidence of buildings in this sector. The detected spectral classes indicate the presence of water bodies, vegetation, and agricultural farmland, but no features characteristic of built-up areas are observed. The uniform brightness distribution across all quadrants also suggests a lack of significant structural development in this sector. (Analyzed via 256.0x super-resolved sub-region)",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered) (ROI Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T22:06:34.464602+00:00",
+    "image_id": "41f21625-c7a4-4d16-8966-ba2f643b880e",
+    "query": "Can you describe this image?",
+    "answer": "The image displays a coastal region with industrial infrastructure and surrounding marine activity.",
+    "confidence": 0.88,
+    "model_used": "captioning-stub-v1"
+  },
+  {
+    "timestamp": "2026-09-07T22:06:34.447370+00:00",
+    "image_id": "41f21625-c7a4-4d16-8966-ba2f643b880e",
+    "query": "Are there any ships?",
+    "answer": "Yes, I can identify 3 vessels in this sector.",
+    "confidence": 0.85,
+    "model_used": "vqa-stub-v3-evidence (Ollama-ready)"
+  },
+  {
+    "timestamp": "2026-09-07T22:06:34.417554+00:00",
+    "image_id": "837f31ac-a118-41b3-ac4a-5431147e3eff",
+    "query": "Are there any ships?",
+    "answer": "Yes, I can identify 3 vessels in this sector.",
+    "confidence": 0.85,
+    "model_used": "vqa-stub-v3-evidence (Ollama-ready)"
+  },
+  {
+    "timestamp": "2026-09-07T22:06:34.379339+00:00",
+    "image_id": "be9fbacc-9fa2-43ec-9028-8a246bae712b vs 7aa87f8f-c12a-45dd-86e8-83cde9cfa2eb",
+    "query": "[PAIR-VALIDATION] Decision: CONTINUE (VALID_SAME_AREA_DIFFERENT_TIME)",
+    "answer": null,
+    "confidence": null,
+    "model_used": null
+  },
+  {
+    "timestamp": "2026-09-07T22:06:34.293043+00:00",
+    "image_id": "e4e7a9dd-ca74-42dc-8bbe-96f2e4f83d6f vs 6b788329-b8ee-499e-b6b7-77f7119268e1",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL CHANGE ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, India vs Delhi, India) (distance: ~1305.5 km; spatial overlap: 0%). Bi-temporal change detection requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T22:06:33.904740+00:00",
+    "image_id": "472efa7b-5d95-4fc3-9b38-9c2ef5d33a57 + 80828d30-fcd7-449f-8535-1507787c966f",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Multimodal Fusion complete. Based on the co-registered Sentinel-2 Optical and Sentinel-1 SAR observations, our multimodal fusion report reveals that the SAR radar backscatter complements optical spectral reflectance by providing a unique perspective on the city's layout and architectural features. The SAR image's ability to penetrate cloud cover and atmospheric interference, as indicated by a SAR backscatter complexity of 16.5, enhances our understanding of the city's infrastructure and modern technology, such as the presence of a radar station. This multimodal fusion enables a more comprehensive and robust scene understanding, as the optical image's color scheme and vegetation patterns are augmented by the SAR image's detailed depiction of the city's layout and radar station.",
+    "confidence": 0.97,
+    "model_used": "fusion-multimodal-v2 (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T22:06:27.914654+00:00",
+    "image_id": "51d5120d-a6f0-48ee-a159-bcd4538666a4",
+    "query": "[ESCALATED-PRECISION] Assess structural density across optical and SAR modalities",
+    "answer": "[High-Precision Verified] Based on the verified physical evidence from the optical and SAR satellite imagery, I conclude that the structural density is significantly higher in the SAR modality compared to the optical modality. The SAR image (right) provides a more detailed and textured representation of the building's structure, indicating a higher level of structural density. This finding is supported by the 4 localized features detected through spatial tiling and test-time augmentation, which were subsequently confirmed through cross-modal SAR verification. With a recomputed confidence level of 95.0%, I assert that the structural density is higher in the SAR modality, providing a precise and authoritative assessment of the physical evidence.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM) + EscalationEngine-v2"
+  },
+  {
+    "timestamp": "2026-09-07T22:06:14.897782+00:00",
+    "image_id": "2a8c2ce9-6fc4-466f-9a8a-bbb2a6227148",
+    "query": "[ESCALATED-PRECISION] Are there any buildings or roads in this scene?",
+    "answer": "[High-Precision Verified] Based on the verified observations from the Moondream model, I can confirm with 95.0% confidence that the scene features a densely populated city with visible buildings and roads. The satellite imagery provides a comprehensive view of the urban environment, showcasing the city's layout and infrastructure.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM) + EscalationEngine-v2"
+  },
+  {
+    "timestamp": "2026-09-07T22:06:07.083405+00:00",
+    "image_id": "05a4950f-0ee9-4e11-9fc1-4a103a472bf3 vs b4f52204-a258-4fdf-8bcf-9f9609853224",
+    "query": "[FINE-GRAINED-CHANGE] 1 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n0.000% of the analyzed scene changed,\n\nBreakdown:\n\u2022 Damage: 409,600 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 9961103.000.\nMean Mahalanobis distance: 445.46.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n0.0\u20130.0 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T22:05:55.018200+00:00",
+    "image_id": "f1a506a4-ea43-4aba-8c9a-04d74173290b vs e328696c-b84d-4093-a259-98e74bc327c9",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T22:05:54.693937+00:00",
+    "image_id": "3e9f441b-32ec-4532-8376-5363f886aa96 vs 10ce9863-d858-4ad4-85ef-f27ed6787825",
+    "query": "[FINE-GRAINED-CHANGE] 0 regions segmented",
+    "answer": "No significant structural changes detected between Baseline (T0) and Target (T1). Surface stability index is 99.2% across all quadrants (mean delta: 0.0).",
+    "confidence": 0.96,
+    "model_used": "change-detection-stub-v1 (False-Positive Suppression Engine)"
+  },
+  {
+    "timestamp": "2026-09-07T22:05:54.490010+00:00",
+    "image_id": "5ee21559-131a-4774-a19e-d7a16a68b4a7 vs 352457d9-2d1d-4311-adfb-b35530ea3bcd",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL CHANGE ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, India vs Delhi, India) (distance: ~1305.5 km; spatial overlap: 0%). Bi-temporal change detection requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T22:05:54.254527+00:00",
+    "image_id": "4d55ec36-2bc0-4ac7-a1e4-cc1e9b352b0b vs ecc58e2d-760e-4ecb-b5e6-9d566b88b6b6",
+    "query": "[FINE-GRAINED-CHANGE] 3 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n22.613% of the analyzed scene changed,\ncorresponding to 9,043,100 m\u00b2 (904.3 ha).\n\nBreakdown:\n\u2022 Damage: 37,974,200 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 1.293.\nMean Mahalanobis distance: 5.78.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n1,990,736.3\u201316,095,463.7 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T22:05:53.824615+00:00",
+    "image_id": "37174cfb-30c9-481f-9f8d-63a1c3c8e703",
+    "query": "[AUTO-CAPTION]",
+    "answer": "The image displays a coastal region with industrial infrastructure and surrounding marine activity.",
+    "confidence": 0.88,
+    "model_used": "captioning-stub-v1"
+  },
+  {
+    "timestamp": "2026-09-07T21:57:15.001383+00:00",
+    "image_id": "b7a2382b-e00b-4b52-9175-393bf332845e",
+    "query": "[ESCALATED-PRECISION] Are there any buildings or roads in this scene?",
+    "answer": "[High-Precision Verified] Based on the verified observations from the Moondream vision-language model, spatial tiling, and test-time augmentation, I can confirm that the scene shows a densely populated urban area with a road running through the center of the frame, surrounded by buildings. The sub-tile detections found 5 localized features, indicating the presence of buildings and roads in the scene. With a recomputed confidence of 95.0%, I can authoritatively state that there are indeed buildings and roads present in this scene.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM) + EscalationEngine-v2"
+  },
+  {
+    "timestamp": "2026-09-07T21:57:06.370940+00:00",
+    "image_id": "ee1793e0-8834-45d2-8a54-048f272cf5df vs c410c0e9-350c-4898-84d2-fc77f9c84bbe",
+    "query": "[FINE-GRAINED-CHANGE] 1 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n0.000% of the analyzed scene changed,\n\nBreakdown:\n\u2022 Damage: 409,600 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 9961103.000.\nMean Mahalanobis distance: 445.46.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n0.0\u20130.0 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T21:56:59.659583+00:00",
+    "image_id": "dd7bed01-c1e1-4330-8eaa-fe8d647d8c06 vs 2d7ef870-518a-4393-939e-353594cf5cdb",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T21:56:59.309628+00:00",
+    "image_id": "f74b4c1a-31e4-4545-8955-785d336d4f74 vs 86899c4b-5bea-40fc-983c-c6b517ae08c2",
+    "query": "[FINE-GRAINED-CHANGE] 0 regions segmented",
+    "answer": "No significant structural changes detected between Baseline (T0) and Target (T1). Surface stability index is 99.2% across all quadrants (mean delta: 0.0).",
+    "confidence": 0.96,
+    "model_used": "change-detection-stub-v1 (False-Positive Suppression Engine)"
+  },
+  {
+    "timestamp": "2026-09-07T21:56:59.099429+00:00",
+    "image_id": "23c05793-61f6-4917-a5da-f106a6b57aeb vs 197fa9e5-2e86-4446-90ca-b7650f71d230",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL CHANGE ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, India vs Delhi, India) (distance: ~1305.5 km; spatial overlap: 0%). Bi-temporal change detection requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:56:58.863512+00:00",
+    "image_id": "4d33f338-352e-414c-abb3-7621cb7acf2c vs 8c6ff59e-4cdc-48f5-8dfe-10b0ee82e012",
+    "query": "[FINE-GRAINED-CHANGE] 3 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n22.613% of the analyzed scene changed,\ncorresponding to 9,043,100 m\u00b2 (904.3 ha).\n\nBreakdown:\n\u2022 Damage: 37,974,200 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 1.293.\nMean Mahalanobis distance: 5.78.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n1,990,736.3\u201316,095,463.7 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T21:56:58.388813+00:00",
+    "image_id": "f96eb44c-17e6-4212-8d21-f267d0492ea8",
+    "query": "[AUTO-CAPTION]",
+    "answer": "The image displays a coastal region with industrial infrastructure and surrounding marine activity.",
+    "confidence": 0.88,
+    "model_used": "captioning-stub-v1"
+  },
+  {
+    "timestamp": "2026-09-07T21:42:18.274689+00:00",
+    "image_id": "demo-sar",
+    "query": "[AUTO-CAPTION]",
+    "answer": "Based on the provided SAR satellite scene, the landscape features a densely populated urban area with varying building heights and a complex network of roads, surrounded by a vast desert-like environment. The scene also highlights the juxtaposition of the urban infrastructure with the natural environment, showcasing the city's spatial organization and land-use patterns.",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T21:41:47.492044+00:00",
+    "image_id": "demo-optical",
+    "query": "[AUTO-CAPTION]",
+    "answer": "Based on the provided optical satellite scene, the landscape features a densely populated urban area with a mix of building sizes and designs, surrounded by trees, indicating a blend of urban and natural environments. The infrastructure is characterized by a network of roads filled with vehicles, suggesting a busy and developed urban environment with a focus on transportation and human activity.",
+    "confidence": 0.95,
+    "model_used": "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T21:41:20.889950+00:00",
+    "image_id": "fusion-optical",
+    "query": "[ESCALATED-PRECISION] What does the radar backscatter show in this SAR scene?",
+    "answer": "[High-Precision Verified] Based on the verified observations and high-precision verification stages applied, the radar backscatter in this SAR scene shows the presence of localized features, specifically:\n\nThe radar backscatter indicates the reflection of the city's infrastructure, including buildings, trees, and street lights, with a confidence score of 95.0%. This physical evidence is supported by the multispectral/RGB image, which captures the different colors present in the scene.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM) + EscalationEngine-v2"
+  },
+  {
+    "timestamp": "2026-09-07T21:40:41.250672+00:00",
+    "image_id": "fusion-optical vs fusion-sar",
+    "query": "[FINE-GRAINED-CHANGE] 2 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n26.915% of the analyzed scene changed,\ncorresponding to 7,055,600 m\u00b2 (705.6 ha).\n\nBreakdown:\n\u2022 Damage: 29,897,500 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 1.969.\nMean Mahalanobis distance: 5.31.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n7,049,769.0\u20137,061,431.0 m\u00b2.\n\nAlignment: PASSED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T21:35:52.331759+00:00",
+    "image_id": "demo-diff-a + demo-diff-b",
+    "query": "[FUSION-BLOCKED]",
+    "answer": "\u274c MULTIMODAL FUSION REJECTED (BLOCKED): Input scenes represent completely different geographic regions (distance: ~1305.5 km; spatial overlap: 0%). Multimodal Optical + SAR fusion requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Multimodal Integrity Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:35:12.906581+00:00",
+    "image_id": "fusion-optical + fusion-sar",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Multimodal Fusion complete. Based on the co-registered Sentinel-2 optical and Sentinel-1 SAR observations, our multimodal fusion report reveals that the SAR radar backscatter complements the optical spectral reflectance by providing a unique perspective on the scene's surface properties. The SAR image's dark squares, indicative of absorption, reveal the presence of metallic structures, which is not discernible from the optical image. This synergy enables a more comprehensive understanding of the scene, as the SAR backscatter data fills in the gaps left by the optical data, particularly in areas with high vegetation or shadowing, thereby enhancing the overall scene understanding.",
+    "confidence": 0.97,
+    "model_used": "fusion-multimodal-v2 (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T21:34:34.262305+00:00",
+    "image_id": "demo-sar",
+    "query": "What does the radar backscatter show in this SAR scene?",
+    "answer": "Based on the SAR (Radar) image, the radar backscatter shows a moderate to high level of backscatter intensity, indicating a mix of surface types and features. The detected spectral classes suggest the presence of water bodies, vegetation, and agricultural farmland, which are likely contributing to the observed backscatter patterns. The overall brightness and edge density metrics also support the presence of a diverse range of surface features.",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:33:51.330721+00:00",
+    "image_id": "demo-optical",
+    "query": "Are there buildings and street intersections visible in this scene?",
+    "answer": "Based on the verified observations from the Moondream vision-language model, I can confirm that the scene indeed presents an aerial view of a city street intersection, featuring buildings and trees visible in the background. The buildings on both sides of the street exhibit varying heights and architectural styles, indicating a diverse urban landscape.",
+    "confidence": 0.95,
+    "model_used": "vqa-multimodal (Moondream VLM + Llama3 LLM)"
+  },
+  {
+    "timestamp": "2026-09-07T21:19:20.562971+00:00",
+    "image_id": "fusion-optical + demo-change-2020",
+    "query": "[FUSION-BLOCKED]",
+    "answer": "\u274c MULTIMODAL FUSION REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Red River Delta (Co-registered Sector) vs Dubai Urban Development Waterfront) (distance: ~5190.4 km; spatial overlap: 0%). Multimodal Optical + SAR fusion requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Multimodal Integrity Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:18:58.396199+00:00",
+    "image_id": "demo-optical",
+    "query": "[AUTO-CAPTION]",
+    "answer": "This Optical (Multispectral/RGB) satellite scene captures a 512x512 pixel image of a predominantly agricultural landscape, characterized by a mix of green vegetation and farmland, with scattered forestry areas and minimal infrastructure features. The scene exhibits a moderate level of structural complexity, with a mean brightness of 108.1/255, indicating a relatively well-illuminated scene with no cloud cover, allowing for a clear visual assessment of the landscape and land-use patterns.",
+    "confidence": 0.92,
+    "model_used": "captioning-stub-v1 (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:18:38.142619+00:00",
+    "image_id": "demo-diff-a vs demo-diff-b",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL CHANGE ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (distance: ~1305.5 km; spatial overlap: 0%). Bi-temporal change detection requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:18:38.066766+00:00",
+    "image_id": "demo-diff-a + demo-diff-b",
+    "query": "[FUSION-BLOCKED]",
+    "answer": "\u274c MULTIMODAL FUSION REJECTED (BLOCKED): Input scenes represent completely different geographic regions (distance: ~1305.5 km; spatial overlap: 0%). Multimodal Optical + SAR fusion requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Multimodal Integrity Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:18:26.062776+00:00",
+    "image_id": "demo-diff-a + demo-diff-b",
+    "query": "Compare the buildings in these two images",
+    "answer": "\u274c DUAL-SCENE QUERY REJECTED (BLOCKED): Input scenes represent completely different geographic regions (distance: ~1305.5 km; spatial overlap: 0%). Dual-scene feature comparison requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Spatial Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:16:13.046050+00:00",
+    "image_id": "fusion-optical vs fusion-sar",
+    "query": "[FINE-GRAINED-CHANGE] 3 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n42.151% of the analyzed scene changed,\ncorresponding to 11,049,600 m\u00b2 (1105.0 ha).\n\nBreakdown:\n\u2022 Damage: 26,415,800 m\u00b2\n\nRegistration RMSE: 1.42 m.\nMean CVM: 1.464.\nMean Mahalanobis distance: 43.55.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n0.0\u201338,426,571.1 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (xView2 Disaster Specialist)"
+  },
+  {
+    "timestamp": "2026-09-07T21:16:03.428286+00:00",
+    "image_id": "fusion-optical",
+    "query": "[AUTO-CAPTION]",
+    "answer": "This Optical (Multispectral/RGB) satellite scene captures a 512x512 pixel view of a predominantly agricultural landscape, characterized by a mix of green vegetation and farmland, with scattered forestry areas and minimal infrastructure features. The scene exhibits a moderate level of structural complexity, with a mean brightness of 108.1/255, indicating a relatively open and well-illuminated environment with no cloud cover.",
+    "confidence": 0.92,
+    "model_used": "captioning-stub-v1 (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:15:11.772988+00:00",
+    "image_id": "fusion-optical + fusion-sar",
+    "query": "What is the dominant land cover?",
+    "answer": "Based on the provided computer vision metrics, the dominant land cover is agricultural farmland, as indicated by the detected spectral classes. The mean RGB values of [110.9, 120.0, 93.4] also suggest a predominantly agricultural landscape, with a moderate brightness level of 108.1/255.",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:15:09.276278+00:00",
+    "image_id": "demo-change-2020 vs demo-change-2024",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T21:15:08.954068+00:00",
+    "image_id": "fusion-optical + fusion-sar",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Fusion analysis complete. The Sentinel-1 SAR data complements the optical spectrum by penetrating atmospheric attenuation, allowing for the detection of structural features and changes in the landscape, such as crop growth and soil moisture, regardless of cloud cover or atmospheric conditions. Additionally, the SAR's ability to detect structural corner reflectors and water specular absorption enables the identification of subtle changes in the land cover context, including the presence of water bodies, roads, and buildings, which can be obscured or difficult to discern in optical imagery. Combined multimodal confidence high.",
+    "confidence": 0.96,
+    "model_used": "fusion-stub-v1 (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:14:30.672488+00:00",
+    "image_id": "demo-diff-a + demo-diff-b",
+    "query": "Compare the buildings in these two images",
+    "answer": "\u274c DUAL-SCENE QUERY REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, West Bengal (Port Sector Alpha) vs Delhi, National Capital Region (Inland Sector Beta); distance: approximately 1305.2 km; spatial overlap: 0%). Dual-scene feature comparison requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Spatial Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:14:00.515301+00:00",
+    "image_id": "demo-diff-a vs demo-diff-b",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL CHANGE ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, West Bengal (Port Sector Alpha) vs Delhi, National Capital Region (Inland Sector Beta); distance: approximately 1305.2 km; spatial overlap: 0%). Bi-temporal change detection requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:13:44.074281+00:00",
+    "image_id": "demo-diff-a + demo-diff-b",
+    "query": "[FUSION-BLOCKED]",
+    "answer": "\u274c MULTIMODAL FUSION REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, West Bengal (Port Sector Alpha) vs Delhi, National Capital Region (Inland Sector Beta); distance: approximately 1305.2 km; spatial overlap: 0%). Multimodal Optical + SAR fusion requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Multimodal Integrity Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:34.435993+00:00",
+    "image_id": "547a61b8-2a50-4fce-8c4c-4cc9728be438 + e54bcade-5db0-43a7-9f1c-dabbcd3bd6c5",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Fusion analysis complete. The Sentinel-1 SAR data complements the optical spectrum by penetrating atmospheric attenuation, allowing for the detection of structural features and surface roughness, even in conditions of high cloud cover or smoke. Additionally, the SAR backscatter signal is sensitive to the presence of water, enabling the detection of water bodies and water-absorption effects, which can be obscured or hidden from optical sensors. Combined multimodal confidence high.",
+    "confidence": 0.96,
+    "model_used": "fusion-stub-v1 (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:31.979651+00:00",
+    "image_id": "7067818f-57c3-4e61-bb26-79e1c2a87db7 vs 57014cdd-585a-4df0-a6b6-d30068146c0b",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:31.761853+00:00",
+    "image_id": "83279eca-f996-4fd8-b91e-adc3c906a413",
+    "query": "Highlight the water bodies and urban infrastructure.",
+    "answer": "Based on the provided computer vision metrics, the water bodies and urban infrastructure can be identified as follows:\n\nThe water bodies, including rivers and lakes, are detected with high confidence, exhibiting distinct spectral signatures and brightness characteristics. Specifically, the mean RGB values for these features are [123.9, 127.3, 115.4], indicating a moderate to high reflectance in the visible spectrum. Urban infrastructure, including industrial and built-up areas, can be distinguished by their unique spectral classes and brightness patterns, with values ranging from 101.8 to 146.4 in the quadrant brightness distribution.\n\nNote: The above answer is strictly based on the provided computer vision metrics and does not involve any invention or modification of the data.",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:27.953362+00:00",
+    "image_id": "32ace28c-afed-4473-9688-f3cac812966b",
+    "query": "[AUTO-CAPTION]",
+    "answer": "This Optical satellite scene captures a 1600x832 pixel image of a mixed landscape, featuring a prominent water body, likely a river or lake, surrounded by a mosaic of built-up urban and industrial infrastructure, agricultural farmland, and forestry. The scene's mean brightness of 91.0/255 and structural complexity of 52.3 suggest a visually diverse terrain with a mix of bright and dark tones, while the complete absence of cloud cover (0.0%) allows for unobstructed views of the landscape's prominent geographic and infrastructure features.",
+    "confidence": 0.92,
+    "model_used": "captioning-stub-v1 (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:24.848897+00:00",
+    "image_id": "547a61b8-2a50-4fce-8c4c-4cc9728be438",
+    "query": "Describe the land cover and dominant water bodies in this satellite scene.",
+    "answer": "This Optical (Multispectral/RGB) satellite scene captures a 512x512 pixel image of a predominantly agricultural landscape, characterized by a mix of vegetation and farmland, with scattered forestry areas and minimal infrastructure features. The scene exhibits a moderate level of structural complexity, with a mean brightness of 108.1/255, indicating a relatively open and well-illuminated terrain with minimal cloud cover, allowing for clear visibility of the landscape and its features.",
+    "confidence": 0.92,
+    "model_used": "captioning-stub-v1 (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:16.240384+00:00",
+    "image_id": "demo-optical",
+    "query": "What land cover features are present?",
+    "answer": "Based on the provided computer vision metrics, the satellite image exhibits the presence of vegetation, agricultural farmland, and forestry land cover features. The mean RGB values indicate a moderate level of brightness, with the NE and SE quadrants showing higher brightness levels compared to the NW and SW quadrants.",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:14.000267+00:00",
+    "image_id": "demo-diff-a + demo-diff-b",
+    "query": "What is the difference between these scenes?",
+    "answer": "\u274c DUAL-SCENE QUERY REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, West Bengal (Port Sector Alpha) vs Delhi, National Capital Region (Inland Sector Beta); distance: approximately 1305.2 km; spatial overlap: 0%). Dual-scene feature comparison requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Spatial Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:13.897313+00:00",
+    "image_id": "demo-diff-a vs demo-diff-b",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL CHANGE ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, West Bengal (Port Sector Alpha) vs Delhi, National Capital Region (Inland Sector Beta); distance: approximately 1305.2 km; spatial overlap: 0%). Bi-temporal change detection requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:13.800619+00:00",
+    "image_id": "demo-diff-a + demo-diff-b",
+    "query": "[FUSION-BLOCKED]",
+    "answer": "\u274c MULTIMODAL FUSION REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, West Bengal (Port Sector Alpha) vs Delhi, National Capital Region (Inland Sector Beta); distance: approximately 1305.2 km; spatial overlap: 0%). Multimodal Optical + SAR fusion requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Multimodal Integrity Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:13.640750+00:00",
+    "image_id": "demo-change-2020 vs demo-change-2024",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:13.369540+00:00",
+    "image_id": "fusion-optical + fusion-sar",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Fusion analysis complete. The Sentinel-1 SAR data complements the optical spectrum by penetrating atmospheric attenuation, allowing for the detection of structural features and changes in the landscape, such as crop growth or soil moisture, regardless of cloud cover or atmospheric conditions. Additionally, the SAR backscatter complexity/density value of 16.5 suggests that the radar is detecting a mix of structural corner reflectors, such as tree trunks and buildings, and water specular absorption, which can provide valuable information about the land cover context, including vegetation, agricultural farmland, and forestry. Combined multimodal confidence high.",
+    "confidence": 0.96,
+    "model_used": "fusion-stub-v1 (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:03.574357+00:00",
+    "image_id": "demo-diff-a + demo-diff-b",
+    "query": "[FUSION-BLOCKED]",
+    "answer": "\u274c MULTIMODAL FUSION REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Kolkata, West Bengal (Port Sector Alpha) vs Delhi, National Capital Region (Inland Sector Beta); distance: approximately 1305.2 km; spatial overlap: 0%). Multimodal Optical + SAR fusion requires spatially co-registered scenes from the same geographic region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Multimodal Integrity Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:03.472131+00:00",
+    "image_id": "demo-change-2020 vs demo-change-2024",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T21:09:03.262907+00:00",
+    "image_id": "fusion-optical + fusion-sar",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Fusion analysis complete. The Sentinel-1 SAR data complements the optical spectrum by penetrating atmospheric attenuation, allowing for the detection of structural features and surface roughness, which is particularly useful in vegetated areas where optical signals may be heavily attenuated by dense foliage. Additionally, the SAR's ability to detect corner reflectors and water specular absorption provides valuable information on surface geometry and moisture content, which can be used to infer soil moisture, crop health, and other land cover characteristics. Combined multimodal confidence high.",
+    "confidence": 0.96,
+    "model_used": "fusion-stub-v1 (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T21:05:52.850499+00:00",
+    "image_id": "tee_01c448d3476c",
+    "query": "[TEE-EXTRACT] Date: 2024-06-15, Source: NASA_GIBS",
+    "answer": null,
+    "confidence": null,
+    "model_used": null
+  },
+  {
+    "timestamp": "2026-09-07T20:32:04.827407+00:00",
+    "image_id": "demo-change-2020 vs demo-change-2024",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T20:31:38.973402+00:00",
+    "image_id": "demo-diff-a vs demo-diff-b",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Coastal Port Alpha vs Desert Inland Beta; distance: ~4343.2 km; spatial overlap: 0%). Temporal change detection requires spatially co-registered scenes from the same region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T20:25:18.616390+00:00",
+    "image_id": "demo-change-2020 vs demo-change-2024",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T20:24:38.742836+00:00",
+    "image_id": "demo-optical",
+    "query": "[ESCALATED-PRECISION] Analyze features and land cover in this specific region.",
+    "answer": "[High-Precision Verified] Based on the analyzed satellite image and verified physical evidence, the region exhibits a mixed land cover with a dominant presence of vegetation and agricultural farmland/forestry. The built-up urban and industrial infrastructure are also visible, with a relatively uniform illumination across the scene. The absence of cloud cover allows for a clear view of the land cover features, which are characterized by a predominantly greenish hue, consistent with the presence of vegetation. The verified physical evidence is supported by a confidence score of 91.0%.",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered) + EscalationEngine-v2"
+  },
+  {
+    "timestamp": "2026-09-07T20:23:57.525468+00:00",
+    "image_id": "demo-diff-a vs demo-diff-b",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Coastal Port Alpha vs Desert Inland Beta; distance: ~4343.2 km; spatial overlap: 0%). Temporal change detection requires spatially co-registered scenes from the same region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
+    "timestamp": "2026-09-07T20:23:43.277927+00:00",
+    "image_id": "demo-optical",
+    "query": "Identify structures that are difficult to confirm optically.",
+    "answer": "Based on the provided computer vision metrics, structures that are difficult to confirm optically are likely to be industrial infrastructure, as the detected spectral class indicates a high presence of built-up urban areas. The mean RGB values and brightness of 116.8/255 suggest that these structures may be partially occluded or have a high albedo, making them challenging to distinguish optically.",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T20:23:29.095296+00:00",
+    "image_id": "demo-optical + demo-sar",
+    "query": "[OPTICAL+SAR-FUSION]",
+    "answer": "Fusion analysis complete. The Sentinel-1 SAR data complements the optical spectrum by providing information on the surface roughness and structural features of the terrain, such as buildings and infrastructure, which can be obscured or attenuated by atmospheric conditions. Additionally, the SAR backscatter signal can penetrate through clouds and atmospheric haze, allowing for the detection of structural corner reflectors and water specular absorption, which can be useful for identifying features like roads, buildings, and water bodies. Combined multimodal confidence high.",
+    "confidence": 0.96,
+    "model_used": "fusion-stub-v1 (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T20:23:10.881913+00:00",
+    "image_id": "demo-change-2020",
+    "query": "Show me water changes between the two dates.",
+    "answer": "Based on the provided satellite image analysis, I can confirm that there are no changes detected in water bodies (river/lake) between the two dates, as the Cloud Cover is 0.0% and the Detected Spectral Classes indicate no changes in water classification. The Mean RGB values and Brightness/Edge Density metrics also suggest no significant changes in water reflectance or edge density.",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T20:22:58.535833+00:00",
+    "image_id": "demo-change-2020",
+    "query": "Has the built-up area increased, decreased, or remained unchanged?",
+    "answer": "Based on the provided satellite image analysis, there is insufficient evidence to determine reliably whether the built-up area has increased, decreased, or remained unchanged. The detected spectral classes only reveal the presence of water bodies, vegetation, and agricultural farmland/forestry, but do not provide information on built-up areas. Therefore, it is not possible to make a conclusive statement about changes in built-up area.",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T20:22:44.584663+00:00",
+    "image_id": "demo-change-2020",
+    "query": "How much vegetation disappeared?",
+    "answer": "Based on the provided computer vision metrics, there is no indication of vegetation disappearance. The detected spectral classes only reveal the presence of vegetation, agricultural farmland, and forestry, but do not provide information on changes or losses. Therefore, it is not possible to determine the amount of vegetation that disappeared.",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T20:22:22.729567+00:00",
+    "image_id": "demo-change-2020 vs demo-change-2024",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T20:22:07.436559+00:00",
+    "image_id": "demo-optical",
+    "query": "Highlight the major built-up region and water body.",
+    "answer": "Based on the provided computer vision metrics, the major built-up region is likely located in the southwestern quadrant (SW) with a brightness value of 141.7, indicating a high level of urbanization. The water body is not explicitly detected, but it is possible that it is present in the northeastern quadrant (NE) with a brightness value of 133.7, which could be indicative of a water body or a region with a high albedo.",
+    "confidence": 0.91,
+    "model_used": "vqa-stub-v3-evidence (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T20:21:55.175055+00:00",
+    "image_id": "demo-optical",
+    "query": "Describe the land-cover and major objects visible in this image.",
+    "answer": "This Optical (Multispectral/RGB) satellite scene captures a 1200x849 pixel view of a mixed-use landscape, featuring a prominent urban-industrial complex with a mix of built-up areas, roads, and infrastructure, juxtaposed against a backdrop of agricultural farmland, forestry, and scattered vegetation. The scene exhibits a moderate level of structural complexity, with a mean brightness of 116.8/255, indicating a well-lit scene with minimal cloud cover, allowing for clear visibility of the landscape's diverse land-use patterns and prominent geographic features.",
+    "confidence": 0.92,
+    "model_used": "captioning-stub-v1 (Ollama Llama3 Powered)"
+  },
+  {
+    "timestamp": "2026-09-07T19:54:05.050804+00:00",
+    "image_id": "demo-change-2020 vs demo-change-2024",
+    "query": "[FINE-GRAINED-CHANGE] 4 regions segmented",
+    "answer": "Change detected between T1 and T2. Significant structural changes detected.\n\n35.550% of the analyzed scene changed,\ncorresponding to 5,038,900 m\u00b2 (503.9 ha).\n\nBreakdown:\n\u2022 New built up: 12,954,800 m\u00b2\n  NDBI \u0394 = +0.38\n\nRegistration RMSE: 1.42 m.\nMean CVM: 2.198.\nMean Mahalanobis distance: 5.14.\n\nOverall evidence quality: 84.1%.\n95% analytical uncertainty interval under stated error model:\n3,098,452.4\u20136,979,347.6 m\u00b2.\n\nAlignment: COREGISTRATION_FAILED.\nCRS: EPSG:4326.\n\nEvidence includes the detected change mask, spatial polygons,\nmeasurements and provenance hash.",
+    "confidence": 0.841,
+    "model_used": "change-detection-stub-v1 (UniRS / Open-CD Multi-Region Mode)"
+  },
+  {
+    "timestamp": "2026-09-07T19:53:59.399207+00:00",
+    "image_id": "demo-diff-a vs demo-diff-b",
+    "query": "[CHANGE-BLOCKED] Reason: DIFFERENT_LOCATION",
+    "answer": "\u274c TEMPORAL ANALYSIS REJECTED (BLOCKED): Input scenes represent completely different geographic regions (Coastal Port Alpha vs Desert Inland Beta; distance: ~4343.2 km; spatial overlap: 0%). Temporal change detection requires spatially co-registered scenes from the same region.",
+    "confidence": 0.38,
+    "model_used": "pair-validator-v1 (Scientific Safety Gate)"
+  },
+  {
     "timestamp": "2026-09-04T10:17:15.109316+00:00",
     "image_id": "tee_ffa2bba00f9d",
     "query": "[TEE-EXTRACT] Date: 2020-06-15, Source: NASA_GIBS",

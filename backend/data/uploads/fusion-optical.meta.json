@@ -1,0 +1,16 @@
+{
+  "filename": "fusion-optical.jpg",
+  "location_name": "Urban Sector Alpha",
+  "bounds": [
+    105.8,
+    20.98,
+    105.92,
+    21.08
+  ],
+  "modality": "Optical",
+  "sensor": "Sentinel-2 Multispectral",
+  "timestamp": "2024-05-15",
+  "crs": "EPSG:4326",
+  "source": "OpenEarthMap-SAR Benchmark",
+  "spatial_resolution_m": 10.0
+}

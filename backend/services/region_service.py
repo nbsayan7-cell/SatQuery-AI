@@ -99,6 +99,7 @@ class RegionService:
                     }
                 ],
                 "model_used": f"{selected_model} (ROI Mode)",
+                "land_cover": raw_result.get("land_cover"),
                 "roi_metadata": {
                     "crop_bounds_px": crop_info["original_bounds_px"],
                     "pct_bounds": crop_info["pct_bounds"],
