@@ -77,7 +77,56 @@ class OllamaClient:
                     return data.get("response", "").strip()
         except Exception as e:
             logger.warning(f"Ollama generate failed or timed out: {e}")
+    @staticmethod
+    async def generate_vlm(
+        prompt: str,
+        image_path: str,
+        system: Optional[str] = None,
+        model: str = "moondream:latest",
+        timeout: Optional[float] = 35.0
+    ) -> Optional[str]:
+        """
+        Multimodal Visual-Language Model (VLM) generation using Ollama (e.g. moondream:latest).
+        Encodes the image as base64 and passes it directly to Ollama's vision pipeline.
+        """
+        import base64
+        if not os.path.exists(image_path):
+            logger.warning(f"generate_vlm: image path does not exist: {image_path}")
             return None
+
+        try:
+            with open(image_path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode("utf-8")
+        except Exception as e:
+            logger.error(f"Failed to read image for VLM: {e}")
+            return None
+
+        actual_timeout = timeout or DEFAULT_TIMEOUT
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "images": [img_b64],
+            "stream": False,
+            "options": {
+                "temperature": DEFAULT_TEMPERATURE,
+                "num_predict": 300
+            }
+        }
+        if system:
+            payload["system"] = system
+
+        try:
+            async with httpx.AsyncClient(timeout=actual_timeout) as client:
+                r = await client.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
+                if r.status_code == 200:
+                    data = r.json()
+                    resp = data.get("response", "").strip()
+                    if resp:
+                        return resp
+        except Exception as e:
+            logger.warning(f"Ollama VLM generate failed or timed out: {e}")
+            return None
+        return None
 
     @staticmethod
     async def chat(

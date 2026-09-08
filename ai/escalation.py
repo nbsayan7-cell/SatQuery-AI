@@ -194,6 +194,8 @@ Synthesize a single precise, authoritative response summarizing the verified phy
 
             current_conf = final_conf
 
+        land_cover = base_res.get("land_cover") or VisionUtils.calculate_landcover_and_objects(image_path)
+
         return {
             "answer": current_answer,
             "confidence": current_conf,
@@ -207,5 +209,6 @@ Synthesize a single precise, authoritative response summarizing the verified phy
                     "confidence": current_conf
                 }
             ],
-            "model_used": f"{base_res.get('model_used', 'standard')} + EscalationEngine-v2"
+            "model_used": f"{base_res.get('model_used', 'standard')} + EscalationEngine-v2",
+            "land_cover": land_cover
         }

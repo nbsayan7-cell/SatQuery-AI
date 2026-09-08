@@ -108,6 +108,7 @@ class ChangeDetectionModel:
                 "between Baseline (T0) and Current (T1)."
             )
 
+            mock_lc = VisionUtils.get_mock_landcover()
             return {
                 **dummy_evidence,
                 "answer": fallback_answer,
@@ -123,7 +124,12 @@ class ChangeDetectionModel:
                     {"step": "Computed normalized difference matrix", "confidence": 0.96},
                     {"step": "Segmented 2 distinct multi-part change clusters", "confidence": 0.94}
                 ],
-                "model_used": "change-detection-stub-v1 (Multi-Region Mode)"
+                "model_used": "change-detection-stub-v1 (Multi-Region Mode)",
+                "land_cover": mock_lc,
+                "land_cover_comparison": [
+                    {"id": "urban", "name": "Built-up & Infrastructure", "icon": "🏙️", "color": "#F97316", "t0_ha": 537.5, "t1_ha": 550.0, "delta_ha": 12.5, "t0_pct": 20.5, "t1_pct": 21.0, "delta_pct": 0.5},
+                    {"id": "vegetation", "name": "Vegetation & Canopy", "icon": "🌲", "color": "#22C55E", "t0_ha": 857.5, "t1_ha": 850.0, "delta_ha": -7.5, "t0_pct": 32.7, "t1_pct": 32.4, "delta_pct": -0.3}
+                ]
             }
 
         change_data = VisionUtils.analyze_change(image_path_1, image_path_2)
@@ -147,6 +153,9 @@ class ChangeDetectionModel:
 
         # 2. No Significant Change (Surface Stability)
         if change_data.get("is_no_change"):
+            lc_cur = change_data.get("land_cover") or VisionUtils.calculate_landcover_and_objects(image_path_2)
+            lc_base = change_data.get("land_cover_t0") or VisionUtils.calculate_landcover_and_objects(image_path_1)
+            lc_comp = change_data.get("land_cover_comparison", [])
             return {
                 "answer": f"No significant structural changes detected between Baseline (T0) and Target (T1). Surface stability index is 99.2% across all quadrants (mean delta: {change_data.get('mean_diff', 0.0)}).",
                 "confidence": 0.96,
@@ -158,7 +167,10 @@ class ChangeDetectionModel:
                     {"step": "Evaluated pixel difference matrix below significance threshold", "confidence": 0.97},
                     {"step": "Suppressed false-positive detection; confirmed temporal stability", "confidence": 0.96}
                 ],
-                "model_used": "change-detection-stub-v1 (False-Positive Suppression Engine)"
+                "model_used": "change-detection-stub-v1 (False-Positive Suppression Engine)",
+                "land_cover": lc_cur,
+                "land_cover_t0": lc_base,
+                "land_cover_comparison": lc_comp
             }
 
         # 3. Deterministic Scientific Pipeline Execution
@@ -355,5 +367,8 @@ class ChangeDetectionModel:
             "total_regions": len(changed_regions),
             "grounding": change_data.get("grounding", []),
             "evidence": evidence_trace,
-            "model_used": model_tag
+            "model_used": model_tag,
+            "land_cover": change_data.get("land_cover") or VisionUtils.calculate_landcover_and_objects(image_path_2),
+            "land_cover_t0": change_data.get("land_cover_t0") or VisionUtils.calculate_landcover_and_objects(image_path_1),
+            "land_cover_comparison": change_data.get("land_cover_comparison", [])
         }
