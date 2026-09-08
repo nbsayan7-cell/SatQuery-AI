@@ -94,7 +94,7 @@ User Question: "{query}"
 Synthesize a clear, authoritative, 2-3 sentence remote-sensing response directly answering the user's question, preserving all specific visual facts observed."""
                 synthesized = await OllamaClient.generate(prompt=llm_prompt, timeout=15.0)
                 answer = synthesized if (synthesized and len(synthesized) > 20) else vlm_obs.strip()
-                model_tag = "vqa-multimodal (Moondream VLM + Llama3 LLM)"
+                model_tag = f"vqa-multimodal ({OllamaClient.get_active_engine()})"
                 confidence = 0.95
             else:
                 # Fallback: Feature-conditioned Llama-3

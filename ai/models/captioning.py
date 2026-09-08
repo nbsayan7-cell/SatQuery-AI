@@ -52,7 +52,7 @@ A vision-language model inspected this {modality} satellite scene and observed:
 Generate a clear, authoritative, 2-sentence remote-sensing scene description based on these visual observations, describing the landscape, infrastructure, and land-use."""
                 synthesized = await OllamaClient.generate(prompt=llm_prompt, timeout=15.0)
                 answer = synthesized if (synthesized and len(synthesized) > 20) else vlm_obs.strip()
-                model_tag = "captioning-v2-multimodal (Moondream VLM + Llama3 LLM)"
+                model_tag = f"captioning-multimodal ({OllamaClient.get_active_engine()})"
                 confidence = 0.95
             else:
                 prompt = f"""Generate a clear, professional 2-sentence remote-sensing scene description for this {modality} satellite scene:
