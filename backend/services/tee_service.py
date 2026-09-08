@@ -239,7 +239,7 @@ class TeeService:
             "source": f"Sentinel-2 MSI Cloudless ({date[:4]}) / EOX Copernicus",
             "date": date,
             "bbox": bbox,
-            "license": "Copernicus Open Access / CC-BY-4.0",
+            "license": "Copernicus Open Access / CC-BY-4.0 (Open STAC)",
             "is_offline_cache": matched_showcase is not None,
             "location_name": matched_showcase["name"] if matched_showcase else f"AOI [{min_lat:.3f}°N, {min_lon:.3f}°E]"
         }

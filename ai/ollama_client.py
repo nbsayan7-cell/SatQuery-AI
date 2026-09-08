@@ -3,8 +3,9 @@ import json
 import logging
 import httpx
 from typing import Optional, List, Dict
+from ai.cloud_ai import CloudAI
 
-logger = logging.getLogger("satquery.ollama")
+logger = logging.getLogger("satquery.ai_client")
 
 # Environment configurations with strict defaults
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -24,9 +25,17 @@ CRITICAL SCIENTIFIC INTEGRITY & NO-HALLUCINATION RULES:
 """
 
 class OllamaClient:
+    """
+    Unified AI & Multimodal Client.
+    Coordinates 24/7 cloud inference (Google Gemini VLM, Groq, OpenAI)
+    with local Ollama fallback.
+    """
+
     @staticmethod
     async def is_available(timeout: float = 2.0) -> bool:
-        """Checks if the local Ollama instance is reachable."""
+        """Checks if either Cloud AI (Gemini/Groq/OpenAI) or local Ollama is reachable."""
+        if CloudAI.is_available():
+            return True
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 r = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
@@ -35,8 +44,17 @@ class OllamaClient:
             return False
 
     @staticmethod
+    def get_active_engine() -> str:
+        """Identifies the current active inference engine."""
+        if CloudAI.is_available():
+            return CloudAI.get_active_provider()
+        return "Ollama Local (http://localhost:11434)"
+
+    @staticmethod
     async def get_available_models(timeout: float = 2.0) -> List[str]:
-        """Returns list of installed Ollama models."""
+        """Returns list of installed Ollama models or active cloud models."""
+        if CloudAI.is_available():
+            return [CloudAI.get_active_provider()]
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 r = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
@@ -55,9 +73,15 @@ class OllamaClient:
         timeout: Optional[float] = None
     ) -> Optional[str]:
         """
-        Sends a single generation prompt to Ollama with strict temperature and safety timeout.
-        Returns the text response or None if offline/timed out.
+        Sends generation prompt to Cloud AI (Gemini/Groq) first, falling back to local Ollama.
         """
+        # 1. Primary: 24/7 Cloud AI
+        if CloudAI.is_available():
+            cloud_res = await CloudAI.generate(prompt=prompt, system=system, timeout=timeout or 15.0)
+            if cloud_res and len(cloud_res.strip()) > 5:
+                return cloud_res
+
+        # 2. Secondary: Local Ollama
         actual_timeout = timeout or DEFAULT_TIMEOUT
         payload = {
             "model": model,
@@ -77,6 +101,8 @@ class OllamaClient:
                     return data.get("response", "").strip()
         except Exception as e:
             logger.warning(f"Ollama generate failed or timed out: {e}")
+        return None
+
     @staticmethod
     async def generate_vlm(
         prompt: str,
@@ -86,9 +112,22 @@ class OllamaClient:
         timeout: Optional[float] = 35.0
     ) -> Optional[str]:
         """
-        Multimodal Visual-Language Model (VLM) generation using Ollama (e.g. moondream:latest).
-        Encodes the image as base64 and passes it directly to Ollama's vision pipeline.
+        Multimodal Visual-Language Model (VLM) generation.
+        Uses Google Gemini Multimodal Vision API when deployed to cloud,
+        falling back to local Moondream via Ollama.
         """
+        # 1. Primary: 24/7 Cloud VLM (Google Gemini 2.0 / 1.5 Flash)
+        if CloudAI.is_available():
+            vlm_cloud_res = await CloudAI.generate_vlm(
+                prompt=prompt,
+                image_path=image_path,
+                system=system,
+                timeout=timeout or 25.0
+            )
+            if vlm_cloud_res and len(vlm_cloud_res.strip()) > 5:
+                return vlm_cloud_res
+
+        # 2. Secondary: Local Ollama VLM
         import base64
         if not os.path.exists(image_path):
             logger.warning(f"generate_vlm: image path does not exist: {image_path}")
@@ -136,8 +175,19 @@ class OllamaClient:
         timeout: Optional[float] = None
     ) -> Optional[str]:
         """
-        Multi-turn chat completion with Ollama.
+        Multi-turn chat completion with Cloud AI or Ollama.
         """
+        # 1. Primary: 24/7 Cloud AI Chat (Groq / Gemini)
+        if CloudAI.is_available():
+            chat_cloud_res = await CloudAI.chat(
+                messages=messages,
+                system=system,
+                timeout=timeout or 20.0
+            )
+            if chat_cloud_res and len(chat_cloud_res.strip()) > 5:
+                return chat_cloud_res
+
+        # 2. Secondary: Local Ollama Chat
         actual_timeout = timeout or DEFAULT_TIMEOUT
         chat_messages = []
         if system:
@@ -166,3 +216,6 @@ class OllamaClient:
         except Exception as e:
             logger.warning(f"Ollama chat failed or timed out: {e}")
             return None
+
+# Export alias
+AIClient = OllamaClient

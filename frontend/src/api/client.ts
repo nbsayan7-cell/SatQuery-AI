@@ -1,4 +1,8 @@
-const API_BASE_URL = 'http://localhost:8000/api';
+// Resolve API base URL dynamically for local dev, Vercel preview, and production cloud hosting
+const rawApiUrl = (import.meta as any).env?.VITE_API_URL;
+export const API_BASE_URL = rawApiUrl
+  ? `${rawApiUrl.replace(/\/+$/, '')}/api`
+  : ((import.meta as any).env?.PROD ? '/api' : 'http://localhost:8000/api');
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -268,8 +272,28 @@ export const apiClient = {
     }
 
     return response.json();
+  },
+
+  async checkHealth(): Promise<{ status: string; service?: string; ai_engine?: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/health`);
+      if (response.ok) return await response.json();
+      return { status: 'error' };
+    } catch {
+      return { status: 'offline' };
+    }
+  },
+
+  startTabKeepAlive(intervalMinutes = 5) {
+    if (typeof window === 'undefined') return;
+    this.checkHealth().catch(() => {});
+    setInterval(() => {
+      this.checkHealth().catch(() => {});
+    }, intervalMinutes * 60 * 1000);
   }
 };
 
-
-
+// Automatically keep backend alive whenever user has the tab open
+if (typeof window !== 'undefined') {
+  apiClient.startTabKeepAlive(5);
+}

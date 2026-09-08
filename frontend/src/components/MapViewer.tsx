@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { API_BASE_URL } from '../api/client';
 
 interface MapViewerProps {
   image1Id: string | null;
@@ -15,7 +16,6 @@ export const MapViewer = ({
   activeRoi,
   onRoiChange
 }: MapViewerProps) => {
-  const API_BASE_URL = 'http://localhost:8000/api';
   const imageUrl1 = image1Id ? `${API_BASE_URL}/images/${image1Id}` : null;
   const imageUrl2 = image2Id ? `${API_BASE_URL}/images/${image2Id}` : null;
 

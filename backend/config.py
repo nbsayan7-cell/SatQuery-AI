@@ -1,6 +1,10 @@
 import os
 from pathlib import Path
 
+# Server configuration
+PORT = int(os.environ.get("PORT", "8000"))
+DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
+
 # Base directories
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
