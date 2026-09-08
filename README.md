@@ -1,7 +1,9 @@
 # 🛰️ SatQuery AI: Autonomous Multimodal Remote Sensing Intelligence Platform
 
+[![Live Website](https://img.shields.io/badge/Live%20Website-satquery--ai--tau--seven.vercel.app-00DC82?style=for-the-badge&logo=vercel&logoColor=white)](https://satquery-ai-tau-seven.vercel.app/)
+[![Live Backend API](https://img.shields.io/badge/Live%20API-Render%2024%2F7-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://satquery-backend-1809.onrender.com/api/health)
+[![Cloud VLM](https://img.shields.io/badge/AI%20Engine-Gemini%202.0%20Flash%20VLM-8E75B2?style=for-the-badge&logo=googlegemini&logoColor=white)](https://aistudio.google.com/)
 [![Smart India Hackathon 2026](https://img.shields.io/badge/SIH%202026-Problem%20ID%3A%20SIH26167-orange.svg?style=for-the-badge&logo=gov.in)](https://www.sih.gov.in/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB.svg?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![React 19](https://img.shields.io/badge/frontend-React%2019-61DAFB.svg?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -9,6 +11,21 @@
 
 > **"The AI may interpret the evidence. It may not manufacture the evidence."**  
 > SatQuery AI transforms complex satellite earth observation data into verifiable, actionable geospatial intelligence using a deterministic remote sensing pipeline, multimodal vision-language models, and cryptographic audit trails.
+
+> 🌐 **24/7 LIVE WEB APPLICATION & CLOUD ARCHITECTURE**:  
+> • **Production Website (Vercel):** [https://satquery-ai-tau-seven.vercel.app/](https://satquery-ai-tau-seven.vercel.app/)  
+> • **Production API (Render):** [https://satquery-backend-1809.onrender.com/api/health](https://satquery-backend-1809.onrender.com/api/health)  
+> *Fully functional in any browser worldwide 24/7 with zero local server or laptop dependency.*
+
+---
+
+## 🎬 Live Product Walkthrough & Video Demonstration
+
+[![SatQuery AI Live Platform Walkthrough](docs/videos/satquery_live_demo.gif)](https://satquery-ai-tau-seven.vercel.app/)
+
+> 🌍 **Launch Live Website**: **[https://satquery-ai-tau-seven.vercel.app/](https://satquery-ai-tau-seven.vercel.app/)**  
+> 📹 **Download Full 1080p Video Walkthrough**: **[docs/videos/satquery_ai_product_demo.mp4](docs/videos/satquery_ai_product_demo.mp4)** *(Direct MP4, 1920x1080 Full-HD, 2m 01s)*  
+> ⚡ **24/7 Zero-Laptop Cloud AI**: Powered by Google Gemini 2.0 Flash VLM + Groq Cloud LLM with automated anti-sleep keep-alive pulses.
 
 ---
 
@@ -22,9 +39,12 @@
 
 ---
 
-## 👥 Team Details
+## 👥 Team & Deployment Details
 
 * **Project:** SatQuery AI
+* **Live Website:** [https://satquery-ai-tau-seven.vercel.app/](https://satquery-ai-tau-seven.vercel.app/)
+* **Live Backend API:** [https://satquery-backend-1809.onrender.com](https://satquery-backend-1809.onrender.com)
+* **Live API Health Check:** [https://satquery-backend-1809.onrender.com/api/health](https://satquery-backend-1809.onrender.com/api/health)
 * **Repository:** [https://github.com/nbsayan7-cell/SatQuery-AI](https://github.com/nbsayan7-cell/SatQuery-AI)
 * **Submission Status:** Public Open-Source Repository
 
