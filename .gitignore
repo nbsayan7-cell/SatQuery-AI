@@ -13,4 +13,15 @@ build/
 *.log
 repos/
 
+# Temporary and scratch artifacts
+scratch/
+patch*.png
+slice*.png
+test_opt.jpg
+test_sar.jpg
 
+# Runtime test uploads and generated crops
+backend/data/uploads/[0-9a-f][0-9a-f]*
+backend/data/uploads/crops/
+backend/data/uploads/tiles/
+backend/data/uploads/tee_*.jpg
