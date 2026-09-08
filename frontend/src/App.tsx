@@ -8,6 +8,7 @@ import { EvidencePanel } from './components/EvidencePanel';
 import { AuditModal } from './components/AuditModal';
 import { GodsEyeExplorer } from './components/GodsEyeExplorer';
 import { ChatBot } from './components/ChatBot';
+import { apiClient } from './api/client';
 
 
 function App() {
@@ -97,16 +98,28 @@ function App() {
         <GodsEyeExplorer
           isOpen={showGlobe}
           onClose={() => setShowGlobe(false)}
-          onSelectImagery={(id) => {
+          onSelectImagery={async (id) => {
             setImage1Id(id);
             setActiveRoi(null);
             setQueryResult(null);
+            try {
+              const capRes = await apiClient.generateCaption(id);
+              setQueryResult(capRes);
+            } catch {
+              // ignore
+            }
           }}
-          onCompareImagery={(id1, id2) => {
+          onCompareImagery={async (id1, id2) => {
             setImage1Id(id1);
             setImage2Id(id2);
             setActiveRoi(null);
             setQueryResult(null);
+            try {
+              const compRes = await apiClient.compareImages(id1, id2);
+              setQueryResult(compRes);
+            } catch (err: any) {
+              setQueryResult({ error: err.message });
+            }
           }}
         />
       )}

@@ -42,11 +42,11 @@ export const UploadPanel = ({ image1Id, image2Id, onUpload1, onUpload2 }: Upload
   const loadPreset = (t0Id: string, t1Id?: string | null) => {
     onUpload1(t0Id);
     if (t1Id !== undefined) {
-      if (t1Id) onUpload2(t1Id);
+      onUpload2(t1Id || '');
     }
   };
 
-  const isPresetActive = (t0: string, t1?: string) => {
+  const isPresetActive = (t0: string, t1?: string | null) => {
     if (t1) return image1Id === t0 && image2Id === t1;
     return image1Id === t0 && !image2Id;
   };
@@ -64,15 +64,17 @@ export const UploadPanel = ({ image1Id, image2Id, onUpload1, onUpload2 }: Upload
         <div className="preset-grid">
           <button
             id="preset-optical"
-            className={`preset-btn ${isPresetActive('demo-optical') ? 'is-active' : ''}`}
-            onClick={() => loadPreset('demo-optical')}
+            className={`preset-btn ${isPresetActive('demo-optical', null) ? 'is-active' : ''}`}
+            onClick={() => loadPreset('demo-optical', null)}
+            title="Single-scene Optical satellite image (VQA, captioning, grounding)"
           >
             Optical
           </button>
           <button
             id="preset-sar"
-            className={`preset-btn ${isPresetActive('demo-sar') ? 'is-active' : ''}`}
-            onClick={() => loadPreset('demo-sar')}
+            className={`preset-btn ${isPresetActive('demo-sar', null) ? 'is-active' : ''}`}
+            onClick={() => loadPreset('demo-sar', null)}
+            title="Single-scene Sentinel-1 SAR Radar image"
           >
             SAR Radar
           </button>
@@ -80,20 +82,23 @@ export const UploadPanel = ({ image1Id, image2Id, onUpload1, onUpload2 }: Upload
             id="preset-change"
             className={`preset-btn ${isPresetActive('demo-change-2020', 'demo-change-2024') ? 'is-active' : ''}`}
             onClick={() => loadPreset('demo-change-2020', 'demo-change-2024')}
+            title="Same location, 2 different years (2020 vs 2024)"
           >
             Change (T0+T1)
           </button>
           <button
             id="preset-fusion"
-            className={`preset-btn ${isPresetActive('demo-optical', 'demo-sar') ? 'is-active' : ''}`}
-            onClick={() => loadPreset('demo-optical', 'demo-sar')}
+            className={`preset-btn ${isPresetActive('fusion-optical', 'fusion-sar') || isPresetActive('demo-optical', 'demo-sar') ? 'is-active' : ''}`}
+            onClick={() => loadPreset('fusion-optical', 'fusion-sar')}
+            title="Same location: Sentinel-2 Optical + Sentinel-1 SAR Radar"
           >
-            Fusion
+            Fusion (Same Area)
           </button>
           <button
             id="preset-disaster"
             className={`preset-btn ${isPresetActive('demo-disaster-pre', 'demo-disaster-post') ? 'is-active' : ''}`}
             onClick={() => loadPreset('demo-disaster-pre', 'demo-disaster-post')}
+            title="Same location: Joplin disaster pre- and post-event"
           >
             xView2 Disaster
           </button>
@@ -101,8 +106,9 @@ export const UploadPanel = ({ image1Id, image2Id, onUpload1, onUpload2 }: Upload
             id="preset-diff"
             className={`preset-btn ${isPresetActive('demo-diff-a', 'demo-diff-b') ? 'is-active' : ''}`}
             onClick={() => loadPreset('demo-diff-a', 'demo-diff-b')}
+            title="Different locations: Disjoint scenes (triggers Location Mismatch Error)"
           >
-            Different Place
+            Different Place (Mismatch)
           </button>
         </div>
       </div>

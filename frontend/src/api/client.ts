@@ -23,13 +23,17 @@ export const apiClient = {
     return response.json();
   },
 
-  async executeQuery(imageId: string, query: string) {
+  async executeQuery(imageId: string, query: string, imageId2?: string | null) {
     const response = await fetch(`${API_BASE_URL}/query`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ image_id: imageId, query: query })
+      body: JSON.stringify({
+        image_id: imageId,
+        query: query,
+        image_id_2: imageId2 || undefined
+      })
     });
 
     if (!response.ok) {
@@ -40,8 +44,8 @@ export const apiClient = {
     return response.json();
   },
 
-  async submitQuery(imageId: string, query: string) {
-    return this.executeQuery(imageId, query);
+  async submitQuery(imageId: string, query: string, imageId2?: string | null) {
+    return this.executeQuery(imageId, query, imageId2);
   },
 
   async generateCaption(imageId: string) {

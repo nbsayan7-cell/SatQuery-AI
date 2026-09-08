@@ -34,7 +34,7 @@ export const QueryPanel = ({
         onQueryResult(res);
       } else {
         if (!queryText.trim()) return;
-        const res = await apiClient.executeQuery(image1Id, queryText);
+        const res = await apiClient.executeQuery(image1Id, queryText, image2Id);
         onQueryResult(res);
       }
     } catch (e: any) {
